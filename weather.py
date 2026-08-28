@@ -2,11 +2,13 @@ import os
 import time
 import logging
 import requests
+
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 from spots import SPOTS
+
 
 # -------------------------
 # CONFIG
@@ -18,7 +20,7 @@ load_dotenv()
 
 API_KEY = os.getenv("STORMGLASS_API_KEY")
 
-CACHE_TIME = 60 * 60
+CACHE_TIME = 60 * 60  # 1 hour
 LOCAL_TIMEZONE = ZoneInfo("Asia/Makassar")
 
 MEM_CACHE = {
@@ -32,6 +34,9 @@ API_USAGE = {
 }
 
 
+# -------------------------
+# API USAGE TRACKING
+# -------------------------
 def track_api_usage():
     global API_USAGE
 
@@ -61,8 +66,10 @@ def deg_to_direction(deg):
 def format_local_time(timestamp):
     try:
         dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
+
         return dt.astimezone(LOCAL_TIMEZONE).strftime("%H:%M")
     except Exception:
         return None
@@ -70,8 +77,10 @@ def format_local_time(timestamp):
 
 def get_hour_value(hour, param):
     values = hour.get(param)
+
     if not isinstance(values, dict):
         return None
+
     return values.get("sg")
 
 
@@ -84,8 +93,10 @@ def build_hour_conditions(hour):
     height = get_hour_value(hour, "waveHeight")
     period = get_hour_value(hour, "wavePeriod")
     direction = get_hour_value(hour, "waveDirection")
+
     wind_speed = get_hour_value(hour, "windSpeed")
     wind_direction = get_hour_value(hour, "windDirection")
+
     tide = get_hour_value(hour, "waterLevel")
 
     if None in (time_local, height, period, direction, wind_speed, wind_direction):
@@ -104,7 +115,11 @@ def build_hour_conditions(hour):
 
 
 def build_fallback_hours():
-    start = datetime.now(LOCAL_TIMEZONE).replace(minute=0, second=0, microsecond=0)
+    start = datetime.now(LOCAL_TIMEZONE).replace(
+        minute=0,
+        second=0,
+        microsecond=0
+    )
 
     return [
         {
@@ -145,7 +160,12 @@ def get_spot_hourly_forecast(spot, lat, lng):
     }
 
     try:
-        response = requests.get(url, params=params, headers=headers, timeout=10)
+        response = requests.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=10
+        )
 
         track_api_usage()
 
@@ -157,14 +177,18 @@ def get_spot_hourly_forecast(spot, lat, lng):
         hours = data.get("hours")
 
         if not isinstance(hours, list) or len(hours) < 24:
+            logger.warning("Invalid hours for %s", spot)
             return None
 
         result = []
 
         for hour in hours[:24]:
             cond = build_hour_conditions(hour)
+
             if cond is None:
+                logger.warning("Invalid hour data for %s", spot)
                 return None
+
             result.append(cond)
 
         return result
@@ -182,7 +206,10 @@ def build_hourly_forecast():
 
     now = time.time()
 
-    if MEM_CACHE["data"] and now - MEM_CACHE["timestamp"] < CACHE_TIME:
+    if (
+        MEM_CACHE["data"]
+        and now - MEM_CACHE["timestamp"] < CACHE_TIME
+    ):
         logger.info("Memory cache hit")
         return MEM_CACHE["data"]
 
@@ -191,7 +218,11 @@ def build_hourly_forecast():
     forecast = {}
 
     for spot, data in SPOTS.items():
-        result = get_spot_hourly_forecast(spot, data["lat"], data["lng"])
+        result = get_spot_hourly_forecast(
+            spot,
+            data["lat"],
+            data["lng"]
+        )
 
         if result:
             forecast[spot] = result
