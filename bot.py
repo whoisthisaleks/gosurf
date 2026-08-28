@@ -1,6 +1,7 @@
 from aiogram.types import FSInputFile
 import asyncio
 import os
+from aiohttp import web
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher, F
@@ -265,9 +266,28 @@ async def open_map(callback: CallbackQuery):
 # RUN
 # ----------------------
 
+async def start_web_server():
+    app = web.Application()
+
+    async def health(request):
+        return web.Response(text="OK")
+
+    app.router.add_get("/", health)
+
+    port = int(os.getenv("PORT", 10000))
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+
 async def main():
     print("🔥 Go Surf Bot started")
-    await dp.start_polling(bot)
+    await asyncio.gather(
+        dp.start_polling(bot),
+        start_web_server()
+    )
 
 
 if __name__ == "__main__":
