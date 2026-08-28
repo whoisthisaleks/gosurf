@@ -190,6 +190,69 @@ async def send_forecast(message: Message, level: str, is_first=False):
 
 
 # ----------------------
+# ALTERNATIVES
+# ----------------------
+@dp.callback_query(F.data.startswith("alts_"))
+async def show_alternatives(callback: CallbackQuery):
+    level = callback.data.replace("alts_", "")
+    forecast = build_forecast()
+    decision = build_recommendation(forecast, level)
+
+    await callback.answer()
+
+    alts = decision["alternatives"]
+
+    if len(alts) < 2:
+        await callback.message.answer("No alternative spots")
+        return
+
+    photo = FSInputFile("assets/alt.png")
+    await callback.message.answer_photo(photo=photo)
+
+    for spot in alts[:2]:
+        data = forecast.get(spot, {})
+
+        wind_text = format_wind(data)
+        tide_text = format_tide(data.get("tide"))
+
+        text = (
+            f"<b>Spot:</b> {spot}\n\n"
+            f"<b>Conditions:</b>\n"
+            f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
+            f"Period: {round(data.get('period', 0), 1)} sec\n"
+            f"Swell: {data.get('swell_direction', '-')}\n"
+            f"Wind: {wind_text}\n"
+            f"Tide: {tide_text}"
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Open map", callback_data=f"map_{spot}")]
+            ]
+        )
+
+        await callback.message.answer(text, reply_markup=keyboard)
+
+
+# ----------------------
+# MAP
+# ----------------------
+@dp.callback_query(F.data.startswith("map_"))
+async def open_map(callback: CallbackQuery):
+    spot = callback.data.replace("map_", "")
+
+    maps = {
+        "Uluwatu": "https://maps.google.com/?q=Uluwatu+Bali",
+        "Canggu": "https://maps.google.com/?q=Canggu+Bali",
+        "Kuta": "https://maps.google.com/?q=Kuta+Bali",
+        "Medewi": "https://maps.google.com/?q=Medewi+Bali",
+    }
+
+    await callback.answer()
+    await callback.message.answer(f"{spot}\n{maps.get(spot)}")
+
+
+# ----------------------
 # WEBHOOK
 # ----------------------
 @app.route("/webhook", methods=["POST"])
