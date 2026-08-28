@@ -147,11 +147,12 @@ async def send_forecast(message: Message, level: str, is_first: bool = False):
         f"{alternatives_text}"
     )
 
+    # ✅ ПРАВИЛЬНЫЙ ПОРЯДОК КНОПОК
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Update", callback_data=f"update_{level}")],
             [InlineKeyboardButton(text="Open map", callback_data=f"map_{best}")],
             [InlineKeyboardButton(text="Alternative spots", callback_data=f"alts_{level}")],
+            [InlineKeyboardButton(text="Update", callback_data=f"update_{level}")],
         ]
     )
 
@@ -162,7 +163,6 @@ async def send_forecast(message: Message, level: str, is_first: bool = False):
         reply_markup=keyboard,
     )
 
-    # 👇 ВАЖНО — отдельным сообщением ПОД кнопками
     if is_first:
         await message.answer("You can also use the menu at the bottom")
 
@@ -200,6 +200,19 @@ async def show_alternatives(callback: CallbackQuery):
         reply_markup=get_main_keyboard(),
     )
 
+    # ✅ КНОПКА ВЕРНУЛАСЬ
+    keyboard1 = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Open map", callback_data=f"map_{alt1}")]
+        ]
+    )
+
+    keyboard2 = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Open map", callback_data=f"map_{alt2}")]
+        ]
+    )
+
     text1 = (
         f"<b>Spot:</b> {alt1}\n"
         f"Score: 85/100\n\n"
@@ -222,8 +235,8 @@ async def show_alternatives(callback: CallbackQuery):
         f"{round(alt2_data.get('wind_speed', 0), 1)} m/s"
     )
 
-    await callback.message.answer(text1, parse_mode="HTML")
-    await callback.message.answer(text2, parse_mode="HTML")
+    await callback.message.answer(text1, parse_mode="HTML", reply_markup=keyboard1)
+    await callback.message.answer(text2, parse_mode="HTML", reply_markup=keyboard2)
 
 
 # ----------------------
@@ -259,7 +272,7 @@ async def open_map(callback: CallbackQuery):
 
 
 # ----------------------
-# WEB (Render)
+# WEB
 # ----------------------
 @app.route("/")
 def home():
