@@ -26,6 +26,16 @@ def calculate_spot_score(
         ""
     )
 
+    wind_speed = conditions.get(
+        "wind_speed",
+        0
+    )
+
+    wind_direction = conditions.get(
+        "wind_direction",
+        ""
+    )
+
 
     spot_rules = SPOTS[spot]
 
@@ -54,27 +64,62 @@ def calculate_spot_score(
     # Wave height
     # --------------------
 
-    if 1.0 <= height <= 2.0:
+    if level == "beginner":
 
-        score += 25
+        if 0.5 <= height <= 1.5:
 
-        reasons.append(
-            "good wave size"
-        )
+            score += 30
+
+            reasons.append(
+                "safe for beginners"
+            )
 
 
-    elif height < 1:
+        elif height < 0.5:
 
-        score += 10
+            score += 10
 
-        reasons.append(
-            "small waves"
-        )
+            reasons.append(
+                "small waves"
+            )
+
+
+        else:
+
+            score += 5
+
+            reasons.append(
+                "big waves (challenging)"
+            )
 
 
     else:
 
-        score += 15
+        if 1.2 <= height <= 2.5:
+
+            score += 30
+
+            reasons.append(
+                "fun wave size"
+            )
+
+
+        elif height < 1.2:
+
+            score += 15
+
+            reasons.append(
+                "smaller waves"
+            )
+
+
+        else:
+
+            score += 20
+
+            reasons.append(
+                "powerful waves"
+            )
 
 
 
@@ -82,17 +127,34 @@ def calculate_spot_score(
     # Period
     # --------------------
 
-    if period >= 12:
+    if level == "beginner":
 
-        score += 25
+        if period >= 12:
 
-        reasons.append(
-            "strong swell period"
-        )
+            score += 15
 
-    elif period >= 8:
+            reasons.append(
+                "strong swell period"
+            )
 
-        score += 15
+        elif period >= 8:
+
+            score += 10
+
+
+    else:
+
+        if period >= 12:
+
+            score += 25
+
+            reasons.append(
+                "strong swell period"
+            )
+
+        elif period >= 8:
+
+            score += 15
 
 
 
@@ -102,11 +164,36 @@ def calculate_spot_score(
 
     if swell in spot_rules["swell"]:
 
-        score += 30
+        if level == "beginner":
+            score += 15
+
+        else:
+            score += 30
 
         reasons.append(
             "good swell direction"
         )
+
+
+    # --------------------
+    # Wind
+    # --------------------
+
+    if wind_direction in spot_rules.get("offshore", []):
+        score += 20
+        reasons.append("offshore wind")
+
+    elif (
+            wind_direction != "unknown"
+            and wind_direction in spot_rules.get("onshore", [])
+    ):
+        score -= 10
+        reasons.append("onshore wind")
+
+
+    if wind_speed >= 10:
+        score -= 10
+        reasons.append("strong wind")
 
 
 

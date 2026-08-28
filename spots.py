@@ -15,7 +15,10 @@ SPOTS = {
         "tide": [
             "low",
             "mid"
-        ]
+        ],
+
+        "offshore": ["E", "SE"],
+        "onshore": ["W"]
 
     },
 
@@ -35,7 +38,10 @@ SPOTS = {
         "tide": [
             "mid",
             "high"
-        ]
+        ],
+
+        "offshore": ["E", "NE"],
+        "onshore": ["W", "SW"]
 
     },
 
@@ -55,7 +61,10 @@ SPOTS = {
         "tide": [
             "high",
             "mid"
-        ]
+        ],
+
+        "offshore": ["E"],
+        "onshore": ["W", "SW"]
 
     },
 
@@ -74,7 +83,10 @@ SPOTS = {
 
         "tide": [
             "mid"
-        ]
+        ],
+
+        "offshore": ["E", "NE"],
+        "onshore": ["SW", "W"]
 
     }
 
