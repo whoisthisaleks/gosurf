@@ -41,6 +41,23 @@ asyncio.set_event_loop(loop)
 
 
 # ----------------------
+# HELPERS
+# ----------------------
+def format_tide(tide):
+    if tide is None:
+        return "unknown"
+
+    if tide < 0.8:
+        state = "low"
+    elif tide < 1.8:
+        state = "mid"
+    else:
+        state = "high"
+
+    return f"{state} ({round(tide,1)} m)"
+
+
+# ----------------------
 # KEYBOARD
 # ----------------------
 def get_main_keyboard():
@@ -131,6 +148,8 @@ async def send_forecast(message: Message, level: str, is_first=False):
     reasons = "\n".join([f"• {r}" for r in decision["reasons"]])
     alts = "\n".join([f"• {s}" for s in decision["alternatives"]])
 
+    tide_text = format_tide(data.get("tide"))
+
     text = (
         f"<b>Best spot:</b> {best}\n"
         f"<b>Score:</b> {decision['score']}/100\n\n"
@@ -139,7 +158,8 @@ async def send_forecast(message: Message, level: str, is_first=False):
         f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
         f"Period: {round(data.get('period', 0), 1)} sec\n"
         f"Swell: {data.get('swell_direction', '-')}\n"
-        f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s\n\n"
+        f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s\n"
+        f"Tide: {tide_text}\n\n"
         f"<b>Alternative spots:</b>\n{alts}"
     )
 
@@ -182,13 +202,16 @@ async def show_alternatives(callback: CallbackQuery):
     for spot in alts[:2]:
         data = forecast.get(spot, {})
 
+        tide_text = format_tide(data.get("tide"))
+
         text = (
             f"<b>Spot:</b> {spot}\n\n"
             f"<b>Conditions:</b>\n"
             f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
             f"Period: {round(data.get('period', 0), 1)} sec\n"
             f"Swell: {data.get('swell_direction', '-')}\n"
-            f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s"
+            f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s\n"
+            f"Tide: {tide_text}"
         )
 
         keyboard = InlineKeyboardMarkup(
