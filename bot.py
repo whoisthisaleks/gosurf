@@ -188,7 +188,7 @@ async def show_alternatives(callback: CallbackQuery):
             f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
             f"Period: {round(data.get('period', 0), 1)} sec\n"
             f"Swell: {data.get('swell_direction', '-')}\n"
-            f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s\n"
+            f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s"
         )
 
         keyboard = InlineKeyboardMarkup(
