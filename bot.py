@@ -55,8 +55,9 @@ async def start(message: Message):
         photo=photo,
         caption=(
             "GoSurf — real-time ocean data analysis to pick the best surf spot right now\n\n"
-            "Hey surfer!"
+            "**Hey surfer!**"
         ),
+        parse_mode="Markdown",
         reply_markup=get_main_keyboard(),
     )
 
@@ -111,13 +112,13 @@ async def about(message: Message):
 async def choose_level(callback: CallbackQuery):
     level = callback.data.replace("level_", "")
     await callback.answer()
-    await send_forecast(callback.message, level)
+    await send_forecast(callback.message, level, is_first=True)
 
 
 # ----------------------
 # FORECAST
 # ----------------------
-async def send_forecast(message: Message, level: str):
+async def send_forecast(message: Message, level: str, is_first: bool = False):
     forecast = build_forecast()
     decision = build_recommendation(forecast, level)
 
@@ -129,22 +130,23 @@ async def send_forecast(message: Message, level: str):
     reasons_text = "\n".join([f"• {r.capitalize()}" for r in decision["reasons"]])
     alternatives_text = "\n".join([f"• {spot}" for spot in decision["alternatives"]])
 
-    text = f"""
-Best spot: {best}
-Score: {decision['score']}/100
+    text = (
+        f"**Best spot:** {best}\n"
+        f"Score: {decision['score']}/100\n\n"
+        f"**Why:**\n"
+        f"{reasons_text}\n\n"
+        f"**Conditions:**\n"
+        f"Wave: {round(best_data.get('wave_height', 0), 1)} m\n"
+        f"Period: {round(best_data.get('period', 0), 1)} sec\n"
+        f"Swell: {best_data.get('swell_direction', '-')}\n"
+        f"Wind: {best_data.get('wind_direction', '-')} "
+        f"{round(best_data.get('wind_speed', 0), 1)} m/s\n\n"
+        f"**Alternatives:**\n"
+        f"{alternatives_text}"
+    )
 
-Why:
-{reasons_text}
-
-**Conditions:**
-Wave: {round(best_data.get('wave_height', 0), 1)} m
-Period: {round(best_data.get('period', 0), 1)} sec
-Swell: {best_data.get('swell_direction', '-')}
-Wind: {best_data.get('wind_direction', '-')} {round(best_data.get('wind_speed', 0), 1)} m/s
-
-Alternatives:
-{alternatives_text}
-"""
+    if is_first:
+        text += "\n\nYou can also use the menu at the bottom"
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -160,9 +162,6 @@ Alternatives:
         parse_mode="Markdown",
         reply_markup=keyboard
     )
-
-    await message.answer("Use the menu below.", reply_markup=get_main_keyboard())
-
 
 # ----------------------
 # ALTERNATIVES
@@ -199,16 +198,16 @@ async def show_alternatives(callback: CallbackQuery):
     )
 
     # -------- FIRST --------
-    text1 = f"""
-Spot: {alt1}
-Score: 85/100
-
-**Conditions:**
-Wave: {round(alt1_data.get('wave_height', 0), 1)} m
-Period: {round(alt1_data.get('period', 0), 1)} sec
-Swell: {alt1_data.get('swell_direction', '-')}
-Wind: {alt1_data.get('wind_direction', '-')} {round(alt1_data.get('wind_speed', 0), 1)} m/s
-"""
+    text1 = (
+        f"**Spot:** {alt1}\n"
+        f"Score: 85/100\n\n"
+        f"**Conditions:**\n"
+        f"Wave: {round(alt1_data.get('wave_height', 0), 1)} m\n"
+        f"Period: {round(alt1_data.get('period', 0), 1)} sec\n"
+        f"Swell: {alt1_data.get('swell_direction', '-')}\n"
+        f"Wind: {alt1_data.get('wind_direction', '-')} "
+        f"{round(alt1_data.get('wind_speed', 0), 1)} m/s"
+    )
 
     keyboard1 = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -223,16 +222,16 @@ Wind: {alt1_data.get('wind_direction', '-')} {round(alt1_data.get('wind_speed', 
     )
 
     # -------- SECOND --------
-    text2 = f"""
-Spot: {alt2}
-Score: 80/100
-
-**Conditions:**
-Wave: {round(alt2_data.get('wave_height', 0), 1)} m
-Period: {round(alt2_data.get('period', 0), 1)} sec
-Swell: {alt2_data.get('swell_direction', '-')}
-Wind: {alt2_data.get('wind_direction', '-')} {round(alt2_data.get('wind_speed', 0), 1)} m/s
-"""
+    text2 = (
+        f"**Spot:** {alt2}\n"
+        f"Score: 80/100\n\n"
+        f"**Conditions:**\n"
+        f"Wave: {round(alt2_data.get('wave_height', 0), 1)} m\n"
+        f"Period: {round(alt2_data.get('period', 0), 1)} sec\n"
+        f"Swell: {alt2_data.get('swell_direction', '-')}\n"
+        f"Wind: {alt2_data.get('wind_direction', '-')} "
+        f"{round(alt2_data.get('wind_speed', 0), 1)} m/s"
+    )
 
     keyboard2 = InlineKeyboardMarkup(
         inline_keyboard=[
