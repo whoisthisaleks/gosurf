@@ -1,7 +1,6 @@
 import asyncio
 import os
 import threading
-
 from flask import Flask
 from dotenv import load_dotenv
 
@@ -19,16 +18,19 @@ from aiogram.types import (
 from weather import build_forecast
 from decision_engine import build_recommendation
 
+
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
 app = Flask(__name__)
 
 
+# ----------------------
+# MAIN KEYBOARD
+# ----------------------
 def get_main_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -56,34 +58,24 @@ async def start(message: Message):
         photo=photo,
         caption=(
             "GoSurf — real-time ocean data analysis to pick the best surf spot right now\n\n"
-            "**Hey surfer!**"
+            "<b>Hey surfer!</b>"
         ),
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=get_main_keyboard(),
     )
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Beginner",
-                    callback_data="level_beginner",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Intermediate",
-                    callback_data="level_intermediate",
-                )
-            ],
-        ],
+            [InlineKeyboardButton(text="Beginner", callback_data="level_beginner")],
+            [InlineKeyboardButton(text="Intermediate", callback_data="level_intermediate")],
+        ]
     )
 
     await message.answer("What’s your level?", reply_markup=keyboard)
 
 
 # ----------------------
-# MAIN MENU
+# MENU
 # ----------------------
 @dp.message(F.text == "Restart bot")
 async def restart(message: Message):
@@ -94,21 +86,10 @@ async def restart(message: Message):
 async def change_level(message: Message):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Beginner",
-                    callback_data="level_beginner",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Intermediate",
-                    callback_data="level_intermediate",
-                )
-            ],
-        ],
+            [InlineKeyboardButton(text="Beginner", callback_data="level_beginner")],
+            [InlineKeyboardButton(text="Intermediate", callback_data="level_intermediate")],
+        ]
     )
-
     await message.answer("What’s your level?", reply_markup=keyboard)
 
 
@@ -148,60 +129,42 @@ async def send_forecast(message: Message, level: str, is_first: bool = False):
 
     photo = FSInputFile("assets/best.png")
 
-    reasons_text = "\n".join(
-        [f"• {reason.capitalize()}" for reason in decision["reasons"]]
-    )
-    alternatives_text = "\n".join(
-        [f"• {spot}" for spot in decision["alternatives"]]
-    )
+    reasons_text = "\n".join([f"• {r.capitalize()}" for r in decision["reasons"]])
+    alternatives_text = "\n".join([f"• {spot}" for spot in decision["alternatives"]])
 
     text = (
-        f"**Best spot:** {best}\n"
+        f"<b>Best spot:</b> {best}\n"
         f"Score: {decision['score']}/100\n\n"
-        f"**Why:**\n"
+        f"<b>Why:</b>\n"
         f"{reasons_text}\n\n"
-        f"**Conditions:**\n"
+        f"<b>Conditions:</b>\n"
         f"Wave: {round(best_data.get('wave_height', 0), 1)} m\n"
         f"Period: {round(best_data.get('period', 0), 1)} sec\n"
         f"Swell: {best_data.get('swell_direction', '-')}\n"
         f"Wind: {best_data.get('wind_direction', '-')} "
         f"{round(best_data.get('wind_speed', 0), 1)} m/s\n\n"
-        f"**Alternatives:**\n"
+        f"<b>Alternatives:</b>\n"
         f"{alternatives_text}"
     )
 
-    if is_first:
-        text += "\n\nYou can also use the menu at the bottom"
-
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Update",
-                    callback_data=f"update_{level}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Open map",
-                    callback_data=f"map_{best}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Alternative spots",
-                    callback_data=f"alts_{level}",
-                )
-            ],
-        ],
+            [InlineKeyboardButton(text="Update", callback_data=f"update_{level}")],
+            [InlineKeyboardButton(text="Open map", callback_data=f"map_{best}")],
+            [InlineKeyboardButton(text="Alternative spots", callback_data=f"alts_{level}")],
+        ]
     )
 
     await message.answer_photo(
         photo=photo,
         caption=text,
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=keyboard,
     )
+
+    # 👇 ВАЖНО — отдельным сообщением ПОД кнопками
+    if is_first:
+        await message.answer("You can also use the menu at the bottom")
 
 
 # ----------------------
@@ -225,24 +188,22 @@ async def show_alternatives(callback: CallbackQuery):
         )
         return
 
-    alt1 = alternatives[0]
-    alt2 = alternatives[1]
+    alt1, alt2 = alternatives[0], alternatives[1]
 
     alt1_data = forecast.get(alt1, {})
     alt2_data = forecast.get(alt2, {})
 
-    # Image before alternatives.
     photo = FSInputFile("assets/alt.png")
+
     await callback.message.answer_photo(
         photo=photo,
         reply_markup=get_main_keyboard(),
     )
 
-    # -------- FIRST --------
     text1 = (
-        f"**Spot:** {alt1}\n"
+        f"<b>Spot:</b> {alt1}\n"
         f"Score: 85/100\n\n"
-        f"**Conditions:**\n"
+        f"<b>Conditions:</b>\n"
         f"Wave: {round(alt1_data.get('wave_height', 0), 1)} m\n"
         f"Period: {round(alt1_data.get('period', 0), 1)} sec\n"
         f"Swell: {alt1_data.get('swell_direction', '-')}\n"
@@ -250,28 +211,10 @@ async def show_alternatives(callback: CallbackQuery):
         f"{round(alt1_data.get('wind_speed', 0), 1)} m/s"
     )
 
-    keyboard1 = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Open map",
-                    callback_data=f"map_{alt1}",
-                )
-            ]
-        ],
-    )
-
-    await callback.message.answer(
-        text1,
-        parse_mode="Markdown",
-        reply_markup=keyboard1,
-    )
-
-    # -------- SECOND --------
     text2 = (
-        f"**Spot:** {alt2}\n"
+        f"<b>Spot:</b> {alt2}\n"
         f"Score: 80/100\n\n"
-        f"**Conditions:**\n"
+        f"<b>Conditions:</b>\n"
         f"Wave: {round(alt2_data.get('wave_height', 0), 1)} m\n"
         f"Period: {round(alt2_data.get('period', 0), 1)} sec\n"
         f"Swell: {alt2_data.get('swell_direction', '-')}\n"
@@ -279,22 +222,8 @@ async def show_alternatives(callback: CallbackQuery):
         f"{round(alt2_data.get('wind_speed', 0), 1)} m/s"
     )
 
-    keyboard2 = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Open map",
-                    callback_data=f"map_{alt2}",
-                )
-            ]
-        ],
-    )
-
-    await callback.message.answer(
-        text2,
-        parse_mode="Markdown",
-        reply_markup=keyboard2,
-    )
+    await callback.message.answer(text1, parse_mode="HTML")
+    await callback.message.answer(text2, parse_mode="HTML")
 
 
 # ----------------------
@@ -318,10 +247,11 @@ async def open_map(callback: CallbackQuery):
         "Uluwatu": "https://maps.google.com/?q=Uluwatu+Bali",
         "Canggu": "https://maps.google.com/?q=Canggu+Bali",
         "Kuta": "https://maps.google.com/?q=Kuta+Bali",
-        "Medewi": "https://maps.google.com/?q=Medewi+Bali"
+        "Medewi": "https://maps.google.com/?q=Medewi+Bali",
     }
 
     await callback.answer()
+
     await callback.message.answer(
         f"{spot}\n{maps.get(spot)}",
         reply_markup=get_main_keyboard(),
