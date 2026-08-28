@@ -1,5 +1,7 @@
 import asyncio
 import os
+import threading
+from flask import Flask
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher, F
@@ -20,6 +22,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+app = Flask(__name__)
 
 
 # ----------------------
@@ -268,10 +271,21 @@ async def open_map(callback: CallbackQuery):
 # ----------------------
 # RUN
 # ----------------------
+@app.route("/")
+def home():
+    return "GoSurf bot is running"
+
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+
 async def main():
     print("🔥 Go Surf Bot started")
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
+    threading.Thread(target=run_web).start()
     asyncio.run(main())
