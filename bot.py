@@ -28,11 +28,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = "https://gosurf-bot.onrender.com/webhook"
 
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode="HTML")
-)
-
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 app = Flask(__name__)
 
@@ -45,7 +41,7 @@ asyncio.set_event_loop(loop)
 # ----------------------
 def format_tide(tide):
     if tide is None:
-        return "unknown"
+        return "not available"
 
     if tide < 0.8:
         state = "low"
@@ -55,6 +51,16 @@ def format_tide(tide):
         state = "high"
 
     return f"{state} ({round(tide,1)} m)"
+
+
+def format_wind(data):
+    wind_dir = data.get("wind_direction")
+    wind_speed = data.get("wind_speed")
+
+    if wind_dir == "unknown" or wind_speed == 0:
+        return "light/variable"
+
+    return f"{wind_dir} {round(wind_speed, 1)} m/s"
 
 
 # ----------------------
@@ -152,6 +158,7 @@ async def send_forecast(message: Message, level: str, is_first=False):
     alts = "\n".join([f"• {s}" for s in decision["alternatives"]])
 
     tide_text = format_tide(data.get("tide"))
+    wind_text = format_wind(data)
 
     text = (
         f"<b>Best spot:</b> {best}\n"
@@ -161,7 +168,7 @@ async def send_forecast(message: Message, level: str, is_first=False):
         f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
         f"Period: {round(data.get('period', 0), 1)} sec\n"
         f"Swell: {data.get('swell_direction', '-')}\n"
-        f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s\n"
+        f"Wind: {wind_text}\n"
         f"Tide: {tide_text}\n\n"
         f"<b>Alternative spots:</b>\n{alts}"
     )
@@ -180,95 +187,3 @@ async def send_forecast(message: Message, level: str, is_first=False):
 
     if is_first:
         await message.answer("You can also use the menu at the bottom")
-
-
-# ----------------------
-# ALTERNATIVES
-# ----------------------
-@dp.callback_query(F.data.startswith("alts_"))
-async def show_alternatives(callback: CallbackQuery):
-    level = callback.data.replace("alts_", "")
-    forecast = build_forecast()
-    decision = build_recommendation(forecast, level)
-
-    await callback.answer()
-
-    alts = decision["alternatives"]
-
-    if len(alts) < 2:
-        await callback.message.answer("No alternative spots")
-        return
-
-    photo = FSInputFile("assets/alt.png")
-    await callback.message.answer_photo(photo=photo)
-
-    for spot in alts[:2]:
-        data = forecast.get(spot, {})
-
-        tide_text = format_tide(data.get("tide"))
-
-        text = (
-            f"<b>Spot:</b> {spot}\n\n"
-            f"<b>Conditions:</b>\n"
-            f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
-            f"Period: {round(data.get('period', 0), 1)} sec\n"
-            f"Swell: {data.get('swell_direction', '-')}\n"
-            f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s\n"
-            f"Tide: {tide_text}"
-        )
-
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="Open map", callback_data=f"map_{spot}")]
-            ]
-        )
-
-        await callback.message.answer(text, reply_markup=keyboard)
-
-
-# ----------------------
-# MAP
-# ----------------------
-@dp.callback_query(F.data.startswith("map_"))
-async def open_map(callback: CallbackQuery):
-    spot = callback.data.replace("map_", "")
-
-    maps = {
-        "Uluwatu": "https://maps.google.com/?q=Uluwatu+Bali",
-        "Canggu": "https://maps.google.com/?q=Canggu+Bali",
-        "Kuta": "https://maps.google.com/?q=Kuta+Bali",
-        "Medewi": "https://maps.google.com/?q=Medewi+Bali",
-    }
-
-    await callback.answer()
-    await callback.message.answer(f"{spot}\n{maps.get(spot)}")
-
-
-# ----------------------
-# WEBHOOK
-# ----------------------
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.json
-    update = Update.model_validate(data)
-
-    loop.run_until_complete(dp.feed_update(bot, update))
-    return "ok"
-
-
-@app.route("/")
-def home():
-    return "GoSurf bot is running"
-
-
-# ----------------------
-# STARTUP
-# ----------------------
-async def on_startup():
-    await bot.set_webhook(WEBHOOK_URL)
-    print("Webhook set")
-
-
-if __name__ == "__main__":
-    loop.run_until_complete(on_startup())
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
