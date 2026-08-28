@@ -187,3 +187,33 @@ async def send_forecast(message: Message, level: str, is_first=False):
 
     if is_first:
         await message.answer("You can also use the menu at the bottom")
+
+
+# ----------------------
+# WEBHOOK
+# ----------------------
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.json
+    update = Update.model_validate(data)
+
+    loop.run_until_complete(dp.feed_update(bot, update))
+    return "ok"
+
+
+@app.route("/")
+def home():
+    return "GoSurf bot is running"
+
+
+# ----------------------
+# STARTUP
+# ----------------------
+async def on_startup():
+    await bot.set_webhook(WEBHOOK_URL)
+    print("Webhook set")
+
+
+if __name__ == "__main__":
+    loop.run_until_complete(on_startup())
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
