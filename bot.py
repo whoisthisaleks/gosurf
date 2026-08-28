@@ -1,6 +1,5 @@
 import asyncio
 import os
-
 from flask import Flask, request
 from dotenv import load_dotenv
 
@@ -22,7 +21,7 @@ from decision_engine import build_recommendation
 
 
 # ----------------------
-# INIT
+# CONFIG
 # ----------------------
 load_dotenv()
 
@@ -31,19 +30,20 @@ WEBHOOK_URL = "https://gosurf-bot.onrender.com/webhook"
 
 bot = Bot(
     token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode="HTML"),
+    default=DefaultBotProperties(parse_mode="HTML")
 )
 
 dp = Dispatcher()
 app = Flask(__name__)
 
-# 🔥 СТАБИЛЬНЫЙ LOOP (фикс 500 ошибки)
+
+# создаем стабильный loop
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
 
 # ----------------------
-# MAIN KEYBOARD
+# KEYBOARD
 # ----------------------
 def get_main_keyboard():
     return ReplyKeyboardMarkup(
@@ -181,6 +181,10 @@ async def show_alternatives(callback: CallbackQuery):
         await callback.message.answer("No alternative spots")
         return
 
+    # ✅ ВАЖНО: картинка перед альтернативами
+    photo = FSInputFile("assets/alt.png")
+    await callback.message.answer_photo(photo=photo)
+
     for spot in alts[:2]:
         data = forecast.get(spot, {})
 
@@ -227,6 +231,7 @@ async def open_map(callback: CallbackQuery):
 def webhook():
     data = request.json
     update = Update.model_validate(data)
+
     loop.run_until_complete(dp.feed_update(bot, update))
     return "ok"
 
