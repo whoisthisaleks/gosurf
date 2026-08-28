@@ -33,7 +33,9 @@ bot = Bot(
 dp = Dispatcher()
 app = Flask(__name__)
 
-loop = asyncio.get_event_loop()
+# ✅ FIX LOOP (Python 3.14)
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
 # ----------------------
 # KEYBOARD
@@ -214,7 +216,7 @@ def home():
     return "GoSurf bot is running"
 
 # ----------------------
-# STARTUP
+# START
 # ----------------------
 async def on_startup():
     await bot.set_webhook(WEBHOOK_URL)
