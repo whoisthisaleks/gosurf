@@ -1,6 +1,9 @@
 from spots import SPOTS
 
 
+# --------------------
+# SCORE
+# --------------------
 def calculate_spot_score(spot, conditions, level):
     score = 0
     reasons = []
@@ -14,15 +17,21 @@ def calculate_spot_score(spot, conditions, level):
 
     spot_rules = SPOTS[spot]
 
-    # Level
-    if level == "beginner":
-        if spot_rules.get("beginner"):
-            score += 20
-            reasons.append("good for your level")
-    else:
-        score += 10
+    # --------------------
+    # HARD FILTER (важно)
+    # --------------------
+    if level == "beginner" and not spot_rules.get("beginner"):
+        return -999, ["not suitable for your level"]
 
-    # Wave
+    # --------------------
+    # PRIORITY (новое)
+    # --------------------
+    priority = spot_rules.get("priority", {}).get(level, 5)
+    score += (10 - priority * 2)
+
+    # --------------------
+    # WAVE HEIGHT
+    # --------------------
     if level == "beginner":
         if 0.5 <= height <= 1.5:
             score += 30
@@ -30,7 +39,8 @@ def calculate_spot_score(spot, conditions, level):
         elif height < 0.5:
             score += 10
         else:
-            score += 5
+            score -= 10
+            reasons.append("too big for beginner")
     else:
         if 1.2 <= height <= 2.5:
             score += 30
@@ -40,35 +50,42 @@ def calculate_spot_score(spot, conditions, level):
         else:
             score += 20
 
-    # Period
+    # --------------------
+    # PERIOD
+    # --------------------
     if period >= 12:
         score += 20
         reasons.append("strong swell")
     elif period >= 8:
         score += 10
 
-    # Swell
+    # --------------------
+    # SWELL
+    # --------------------
     if swell in spot_rules.get("swell", []):
         score += 20
         reasons.append("good swell direction")
 
-    # Wind
+    # --------------------
+    # WIND
+    # --------------------
     if wind_direction == "unknown":
-        score -= 15
+        score -= 10
     elif wind_direction in spot_rules.get("offshore", []):
         score += 20
         reasons.append("offshore wind")
     elif wind_direction in spot_rules.get("onshore", []):
-        score -= 10
+        score -= 15
         reasons.append("onshore wind")
 
     if wind_speed >= 10:
         score -= 10
+        reasons.append("strong wind")
 
-    # Tide
+    # --------------------
+    # TIDE
+    # --------------------
     if tide is not None:
-        tide_pref = spot_rules.get("tide_preference", [])
-
         if tide < 0.8:
             tide_state = "low"
         elif tide < 1.8:
@@ -76,7 +93,7 @@ def calculate_spot_score(spot, conditions, level):
         else:
             tide_state = "high"
 
-        if tide_state in tide_pref:
+        if tide_state in spot_rules.get("tide_preference", []):
             score += 10
             reasons.append("good tide")
         else:
@@ -155,6 +172,9 @@ def analyze_day_parts(hourly_forecast, spot, level):
         return None
 
 
+# --------------------
+# MAIN
+# --------------------
 def build_recommendation(forecast, level, hourly_forecast=None):
     results = []
 
@@ -169,6 +189,7 @@ def build_recommendation(forecast, level, hourly_forecast=None):
             }
         )
 
+    # сортировка по score
     results.sort(key=lambda x: -x["score"])
 
     best = results[0]

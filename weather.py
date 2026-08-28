@@ -1,85 +1,84 @@
 import os
-import json
 import time
 import logging
 import requests
-
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-
 from dotenv import load_dotenv
 
 from spots import SPOTS
 
-
-logging.basicConfig(
-    level=logging.INFO
-)
-
+# -------------------------
+# CONFIG
+# -------------------------
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 load_dotenv()
 
-
 API_KEY = os.getenv("STORMGLASS_API_KEY")
 
-
-CACHE_FILE = "stormglass_cache.json"
-
 CACHE_TIME = 60 * 60  # 1 hour
-
 LOCAL_TIMEZONE = ZoneInfo("Asia/Makassar")
 
+# -------------------------
+# MEMORY CACHE
+# -------------------------
+MEM_CACHE = {
+    "timestamp": 0,
+    "data": None
+}
+
+# -------------------------
+# API USAGE TRACKING
+# -------------------------
+API_USAGE = {
+    "count": 0,
+    "day": datetime.now().date()
+}
+
+
+def track_api_usage():
+    global API_USAGE
+
+    today = datetime.now().date()
+
+    if API_USAGE["day"] != today:
+        API_USAGE = {
+            "count": 0,
+            "day": today
+        }
+
+    API_USAGE["count"] += 1
+    logger.info(f"API calls today: {API_USAGE['count']}")
 
 
 # -------------------------
-# Helpers
+# HELPERS
 # -------------------------
-
-
 def deg_to_direction(deg):
-
     if deg is None:
         return "unknown"
 
-
-    directions = [
-        "N",
-        "NE",
-        "E",
-        "SE",
-        "S",
-        "SW",
-        "W",
-        "NW"
-    ]
-
-
+    directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
     index = round(deg / 45) % 8
-
     return directions[index]
 
 
 def format_local_time(timestamp):
-
     try:
-        forecast_time = datetime.fromisoformat(
-            timestamp.replace("Z", "+00:00")
-        )
+        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
 
-        if forecast_time.tzinfo is None:
-            forecast_time = forecast_time.replace(tzinfo=timezone.utc)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
 
-        return forecast_time.astimezone(LOCAL_TIMEZONE).strftime("%H:%M")
-
-    except (AttributeError, TypeError, ValueError):
+        return dt.astimezone(LOCAL_TIMEZONE).strftime("%H:%M")
+    except Exception:
         return None
 
 
-def get_hour_value(hour, parameter):
-
-    values = hour.get(parameter)
+def get_hour_value(hour, param):
+    values = hour.get(param)
 
     if not isinstance(values, dict):
         return None
@@ -88,340 +87,156 @@ def get_hour_value(hour, parameter):
 
 
 def build_hour_conditions(hour):
-
     if not isinstance(hour, dict):
         return None
 
-    local_time = format_local_time(hour.get("time"))
+    time_local = format_local_time(hour.get("time"))
+
     height = get_hour_value(hour, "waveHeight")
     period = get_hour_value(hour, "wavePeriod")
     direction = get_hour_value(hour, "waveDirection")
     wind_speed = get_hour_value(hour, "windSpeed")
     wind_direction = get_hour_value(hour, "windDirection")
 
-    if (
-            local_time is None
-            or height is None
-            or period is None
-            or direction is None
-            or wind_speed is None
-            or wind_direction is None
-    ):
+    if None in (time_local, height, period, direction, wind_speed, wind_direction):
         return None
 
     return {
-        "time": local_time,
-        "wave_height": round(height, 1) if height else 0,
-        "period": round(period, 1) if period else 0,
+        "time": time_local,
+        "wave_height": round(height, 1),
+        "period": round(period, 1),
         "swell_direction": deg_to_direction(direction),
-        "wind_speed": float(round(wind_speed, 1)),
+        "wind_speed": round(wind_speed, 1),
         "wind_direction": deg_to_direction(wind_direction),
+        "tide": None,  # пока нет tide API
         "source": "stormglass"
     }
 
 
 def build_fallback_hours():
-
-    start_time = datetime.now(LOCAL_TIMEZONE).replace(
-        minute=0,
-        second=0,
-        microsecond=0
+    start = datetime.now(LOCAL_TIMEZONE).replace(
+        minute=0, second=0, microsecond=0
     )
 
     return [
         {
-            "time": (start_time + timedelta(hours=offset)).strftime("%H:%M"),
+            "time": (start + timedelta(hours=i)).strftime("%H:%M"),
             "wave_height": 1.0,
             "period": 12,
             "swell_direction": "SW",
             "wind_speed": 0.0,
             "wind_direction": "unknown",
+            "tide": None,
             "source": "fallback"
         }
-        for offset in range(24)
+        for i in range(24)
     ]
 
 
-
-def load_cache():
-
-    if not os.path.exists(CACHE_FILE):
-        return None
-
-
-    with open(
-        CACHE_FILE,
-        "r"
-    ) as file:
-
-        return json.load(file)
-
-
-
-def save_cache(data):
-
-    with open(
-        CACHE_FILE,
-        "w"
-    ) as file:
-
-        json.dump(
-            {
-                "timestamp": time.time(),
-                "data": data
-            },
-            file,
-            indent=2
-        )
-
-
-
 # -------------------------
-# Stormglass
+# API
 # -------------------------
-
-
-def get_spot_hourly_forecast(
-        spot_name,
-        lat,
-        lng
-):
-
-
-    url = (
-        "https://api.stormglass.io/v2/"
-        "weather/point"
-    )
-
+def get_spot_hourly_forecast(spot, lat, lng):
+    url = "https://api.stormglass.io/v2/weather/point"
 
     params = {
-
         "lat": lat,
-
         "lng": lng,
-
-        "params":
-            "waveHeight,"
-            "wavePeriod,"
-            "waveDirection,"
-            "windSpeed,"
+        "params": ",".join([
+            "waveHeight",
+            "wavePeriod",
+            "waveDirection",
+            "windSpeed",
             "windDirection"
-
+        ])
     }
-
 
     headers = {
-
         "Authorization": API_KEY
-
     }
 
-
-
     try:
+        response = requests.get(url, params=params, headers=headers, timeout=10)
 
-        response = requests.get(
-            url,
-            params=params,
-            headers=headers,
-            timeout=10
-        )
+        # ✅ считаем каждый вызов API
+        track_api_usage()
 
-        if response is None:
-            logger.error("Stormglass returned no response for %s", spot_name)
+        if response.status_code != 200:
+            logger.error("Stormglass error %s for %s", response.status_code, spot)
             return None
-
 
         data = response.json()
-
-
-        if not isinstance(data, dict):
-            logger.error("Stormglass returned invalid data for %s", spot_name)
-            return None
-
-
-        if "errors" in data:
-
-            logger.error(
-                "Stormglass returned errors for %s: %s",
-                spot_name,
-                data["errors"]
-            )
-
-            return None
-
-
 
         hours = data.get("hours")
 
         if not isinstance(hours, list) or len(hours) < 24:
-            logger.warning(
-                "Stormglass returned fewer than 24 forecast hours for %s",
-                spot_name
-            )
+            logger.warning("Invalid hours data for %s", spot)
             return None
 
-
-        forecast = []
+        result = []
 
         for hour in hours[:24]:
-            conditions = build_hour_conditions(hour)
+            cond = build_hour_conditions(hour)
 
-            if conditions is None:
-                logger.warning(
-                    "Stormglass returned incomplete forecast data for %s",
-                    spot_name
-                )
+            if cond is None:
+                logger.warning("Incomplete data for %s", spot)
                 return None
 
-            forecast.append(conditions)
+            result.append(cond)
 
+        return result
 
-        return forecast
-
-
-
-    except Exception as error:
-
-        logger.error(
-            "Stormglass request failed for %s: %s",
-            spot_name,
-            error
-        )
-
+    except Exception as e:
+        logger.error("Stormglass failed for %s: %s", spot, e)
         return None
 
 
-def get_spot_forecast(
-        spot_name,
-        lat,
-        lng
-):
-
-    hourly_forecast = get_spot_hourly_forecast(
-        spot_name,
-        lat,
-        lng
-    )
-
-    if not hourly_forecast:
-        return None
-
-    return hourly_forecast[0]
-
-
-
 # -------------------------
-# Main
+# MAIN (SMART CACHE)
 # -------------------------
-
-
 def build_hourly_forecast():
+    global MEM_CACHE
 
+    now = time.time()
 
-    cache = load_cache()
+    # ✅ MEMORY CACHE
+    if (
+        MEM_CACHE["data"] is not None
+        and now - MEM_CACHE["timestamp"] < CACHE_TIME
+    ):
+        logger.info("Memory cache hit")
+        return MEM_CACHE["data"]
 
-
-
-    if cache:
-
-        age = (
-            time.time()
-            -
-            cache["timestamp"]
-        )
-
-
-        cached_data = cache.get("data")
-
-        has_source = (
-            isinstance(cached_data, dict)
-            and all(
-                isinstance(hours, list)
-                and len(hours) >= 24
-                and all(
-                    isinstance(conditions, dict)
-                    and "source" in conditions
-                    for conditions in hours[:24]
-                )
-                for hours in cached_data.values()
-            )
-        )
-
-        has_wind = (
-            isinstance(cached_data, dict)
-            and all(
-                isinstance(hours, list)
-                and len(hours) >= 24
-                and all(
-                    isinstance(conditions, dict)
-                    and "wind_speed" in conditions
-                    and "wind_direction" in conditions
-                    for conditions in hours[:24]
-                )
-                for hours in cached_data.values()
-            )
-        )
-
-        if age < CACHE_TIME and has_source and has_wind:
-
-            logger.info(
-                "Cache hit: %s min old",
-                int(age / 60)
-            )
-
-            return cached_data
-
-
-        if age < CACHE_TIME:
-            logger.warning(
-                "Cache has no complete hourly forecast and will be refreshed"
-            )
-
-
-
-    logger.info("Fetching new Stormglass data")
-
+    logger.info("Fetching Stormglass data")
 
     forecast = {}
 
-
-
     for spot, data in SPOTS.items():
-
-
         result = get_spot_hourly_forecast(
             spot,
             data["lat"],
             data["lng"]
         )
 
-
-
         if result:
-
             forecast[spot] = result
-
-
         else:
-
+            logger.warning("Fallback used for %s", spot)
             forecast[spot] = build_fallback_hours()
 
-
-
-    save_cache(
-        forecast
-    )
-
+    MEM_CACHE = {
+        "timestamp": now,
+        "data": forecast
+    }
 
     return forecast
 
 
 def build_forecast():
-
-    hourly_forecast = build_hourly_forecast()
+    hourly = build_hourly_forecast()
 
     return {
         spot: hours[0]
-        for spot, hours in hourly_forecast.items()
+        for spot, hours in hourly.items()
     }
+    

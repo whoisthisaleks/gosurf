@@ -1,91 +1,84 @@
 SPOTS = {
     "Uluwatu": {
-        "lat": -8.829,
-        "lng": 115.084,
+        "lat": -8.8296,
+        "lng": 115.0849,
+
+        # условия
+        "swell": ["SW", "S", "SE"],
+        "offshore": ["E", "NE"],
+        "onshore": ["W", "SW"],
 
         # уровень
         "beginner": False,
 
-        # волна
-        "min_wave": 1.2,
-        "max_wave": 3.5,
+        # приоритет (меньше = лучше)
+        "priority": {
+            "beginner": 99,
+            "intermediate": 2,
+            "advanced": 1
+        },
 
-        # период
-        "optimal_period": 12,
-
-        # направление свелла
-        "swell": ["SW", "S"],
-
-        # ветер
-        "offshore": ["E", "NE"],
-        "onshore": ["W", "SW"],
-
-        # новое
-        "type": "reef",
-        "tide_preference": ["mid", "high"],
-        "danger_level": 3,
+        # прилив
+        "tide_preference": ["mid", "high"]
     },
 
     "Canggu": {
-        "lat": -8.651,
-        "lng": 115.138,
+        # Batu Bolong (основной учебный пик)
+        "lat": -8.6617,
+        "lng": 115.1300,
+
+        "swell": ["SW", "S"],
+        "offshore": ["E", "NE"],
+        "onshore": ["W", "SW"],
 
         "beginner": True,
 
-        "min_wave": 0.8,
-        "max_wave": 2.5,
+        "priority": {
+            "beginner": 2,
+            "intermediate": 1,
+            "advanced": 3
+        },
 
-        "optimal_period": 10,
-
-        "swell": ["SW", "W"],
-
-        "offshore": ["E", "NE"],
-        "onshore": ["W"],
-
-        "type": "beach",
-        "tide_preference": ["low", "mid"],
-        "danger_level": 1,
+        "tide_preference": ["mid"]
     },
 
     "Kuta": {
-        "lat": -8.717,
-        "lng": 115.168,
+        # центральный пляж
+        "lat": -8.7184,
+        "lng": 115.1686,
 
-        "beginner": True,
-
-        "min_wave": 0.5,
-        "max_wave": 2.0,
-
-        "optimal_period": 9,
-
-        "swell": ["SW", "W"],
-
+        "swell": ["SW", "S"],
         "offshore": ["E"],
         "onshore": ["W"],
 
-        "type": "beach",
-        "tide_preference": ["low", "mid"],
-        "danger_level": 1,
+        "beginner": True,
+
+        "priority": {
+            "beginner": 1,
+            "intermediate": 4,
+            "advanced": 5
+        },
+
+        "tide_preference": ["mid", "high"]
     },
 
     "Medewi": {
-        "lat": -8.419,
-        "lng": 114.802,
+        # main point
+        "lat": -8.4260,
+        "lng": 114.7903,
+
+        "swell": ["SW", "S"],
+        "offshore": ["E", "NE"],
+        "onshore": ["W"],
 
         "beginner": False,
 
-        "min_wave": 1.0,
-        "max_wave": 3.0,
+        "priority": {
+            "beginner": 3,
+            "intermediate": 3,
+            "advanced": 2
+        },
 
-        "optimal_period": 11,
-
-        "swell": ["SW"],
-
-        "offshore": ["SE", "E"],
-        "onshore": ["W"],
-
-        "type": "point",
-        "tide_preference": ["mid", "high"],
-        "danger_level": 2,
+        "tide_preference": ["mid", "high"]
     }
 }
