@@ -37,9 +37,53 @@ dp = Dispatcher()
 app = Flask(__name__)
 
 
-# создаем стабильный loop
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
+
+
+# ----------------------
+# FORMATTER
+# ----------------------
+def format_recommendation(rec):
+    spot = rec["best"]
+    conditions = rec["conditions"]
+    reasons = rec["reasons"]
+    alternatives = rec["alternatives"]
+
+    wave = round(conditions.get("wave_height", 0), 1)
+    period = round(conditions.get("period", 0), 1)
+    swell = conditions.get("swell_direction", "-")
+    wind_speed = round(conditions.get("wind_speed", 0), 1)
+    wind_dir = conditions.get("wind_direction", "-")
+
+    if wind_dir == "unknown":
+        wind_text = "unavailable"
+    else:
+        wind_text = f"{wind_dir} {wind_speed} m/s"
+
+    text = (
+        f"<b>Best spot:</b> {spot}\n\n"
+        f"<b>Conditions:</b>\n"
+        f"Wave: {wave} m\n"
+        f"Period: {period} sec\n"
+        f"Swell: {swell}\n"
+        f"Wind: {wind_text}\n\n"
+        f"<b>Why:</b>\n"
+    )
+
+    for r in reasons[:3]:
+        text += f"- {r}\n"
+
+    # ✅ исправлено: без пустой строки после заголовка
+    if alternatives:
+        text += "\n<b>Alternative spots:</b>\n"
+        for i, alt in enumerate(alternatives):
+            if i == 0:
+                text += f"{alt}\n"
+            else:
+                text += f"{alt}"
+
+    return text.strip()
 
 
 # ----------------------
@@ -130,27 +174,11 @@ async def send_forecast(message: Message, level: str, is_first=False):
     forecast = build_forecast()
     decision = build_recommendation(forecast, level)
 
-    best = decision["best"]
-    data = decision["conditions"]
-
-    reasons = "\n".join([f"• {r}" for r in decision["reasons"]])
-    alts = "\n".join([f"• {s}" for s in decision["alternatives"]])
-
-    text = (
-        f"<b>Best spot:</b> {best}\n"
-        f"<b>Score:</b> {decision['score']}/100\n\n"
-        f"<b>Why:</b>\n{reasons}\n\n"
-        f"<b>Conditions:</b>\n"
-        f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
-        f"Period: {round(data.get('period', 0), 1)} sec\n"
-        f"Swell: {data.get('swell_direction', '-')}\n"
-        f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s\n\n"
-        f"<b>Alternatives:</b>\n{alts}"
-    )
+    text = format_recommendation(decision)
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Open map", callback_data=f"map_{best}")],
+            [InlineKeyboardButton(text="Open map", callback_data=f"map_{decision['best']}")],
             [InlineKeyboardButton(text="Alternative spots", callback_data=f"alts_{level}")],
             [InlineKeyboardButton(text="Update", callback_data=f"update_{level}")],
         ]
@@ -181,20 +209,28 @@ async def show_alternatives(callback: CallbackQuery):
         await callback.message.answer("No alternative spots")
         return
 
-    # ✅ ВАЖНО: картинка перед альтернативами
     photo = FSInputFile("assets/alt.png")
     await callback.message.answer_photo(photo=photo)
 
     for spot in alts[:2]:
         data = forecast.get(spot, {})
 
+        wind_dir = data.get("wind_direction", "-")
+        wind_speed = round(data.get("wind_speed", 0), 1)
+
+        if wind_dir == "unknown":
+            wind_text = "unavailable"
+        else:
+            wind_text = f"{wind_dir} {wind_speed} m/s"
+
+        # ✅ добавлен отступ после Spot
         text = (
-            f"<b>Spot:</b> {spot}\n"
+            f"<b>Spot:</b> {spot}\n\n"
             f"<b>Conditions:</b>\n"
             f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
             f"Period: {round(data.get('period', 0), 1)} sec\n"
             f"Swell: {data.get('swell_direction', '-')}\n"
-            f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s"
+            f"Wind: {wind_text}"
         )
 
         keyboard = InlineKeyboardMarkup(
