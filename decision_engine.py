@@ -2,6 +2,22 @@ from spots import SPOTS
 
 
 # --------------------
+# HELPERS
+# --------------------
+def get_time_bucket(hour_str):
+    try:
+        hour = int(hour_str.split(":")[0])
+    except:
+        return "other"
+
+    if 6 <= hour <= 11:
+        return "morning"
+    elif 12 <= hour <= 18:
+        return "afternoon"
+    return "other"
+
+
+# --------------------
 # SCORE
 # --------------------
 def calculate_spot_score(spot, conditions, level):
@@ -15,23 +31,21 @@ def calculate_spot_score(spot, conditions, level):
     wind_direction = conditions.get("wind_direction", "")
     tide = conditions.get("tide")
 
-    spot_rules = SPOTS[spot]
+    rules = SPOTS[spot]
 
-    # --------------------
-    # HARD FILTER (важно)
-    # --------------------
-    if level == "beginner" and not spot_rules.get("beginner"):
-        return -999, ["not suitable for your level"]
+    # LEVEL
+    if level == "beginner":
+        if rules["beginner"]:
+            score += 20
+            reasons.append("good for your level")
 
-    # --------------------
-    # PRIORITY (новое)
-    # --------------------
-    priority = spot_rules.get("priority", {}).get(level, 5)
-    score += (10 - priority * 2)
+    elif level == "intermediate":
+        score += 10
 
-    # --------------------
+    else:  # advanced
+        score += 15
+
     # WAVE HEIGHT
-    # --------------------
     if level == "beginner":
         if 0.5 <= height <= 1.5:
             score += 30
@@ -39,52 +53,50 @@ def calculate_spot_score(spot, conditions, level):
         elif height < 0.5:
             score += 10
         else:
-            score -= 10
-            reasons.append("too big for beginner")
-    else:
-        if 1.2 <= height <= 2.5:
+            score += 5
+
+    elif level == "intermediate":
+        if 1.0 <= height <= 2.0:
             score += 30
-            reasons.append("good wave size")
-        elif height < 1.2:
+            reasons.append("fun wave size")
+        elif height < 1.0:
             score += 15
         else:
             score += 20
 
-    # --------------------
+    else:  # advanced
+        if height >= 1.5:
+            score += 35
+            reasons.append("powerful waves")
+        elif height >= 1.0:
+            score += 25
+        else:
+            score += 10
+
     # PERIOD
-    # --------------------
     if period >= 12:
         score += 20
         reasons.append("strong swell")
     elif period >= 8:
         score += 10
 
-    # --------------------
     # SWELL
-    # --------------------
-    if swell in spot_rules.get("swell", []):
+    if swell in rules["swell"]:
         score += 20
         reasons.append("good swell direction")
 
-    # --------------------
     # WIND
-    # --------------------
-    if wind_direction == "unknown":
-        score -= 10
-    elif wind_direction in spot_rules.get("offshore", []):
+    if wind_direction in rules.get("offshore", []):
         score += 20
         reasons.append("offshore wind")
-    elif wind_direction in spot_rules.get("onshore", []):
-        score -= 15
+    elif wind_direction in rules.get("onshore", []):
+        score -= 10
         reasons.append("onshore wind")
 
     if wind_speed >= 10:
         score -= 10
-        reasons.append("strong wind")
 
-    # --------------------
     # TIDE
-    # --------------------
     if tide is not None:
         if tide < 0.8:
             tide_state = "low"
@@ -93,11 +105,9 @@ def calculate_spot_score(spot, conditions, level):
         else:
             tide_state = "high"
 
-        if tide_state in spot_rules.get("tide_preference", []):
+        if tide_state in rules.get("tide_preference", []):
             score += 10
             reasons.append("good tide")
-        else:
-            score -= 5
 
     return score, reasons
 
@@ -105,71 +115,24 @@ def calculate_spot_score(spot, conditions, level):
 # --------------------
 # BEST TIME
 # --------------------
-def find_best_time(hourly_forecast, best_spot, level):
-    hours = hourly_forecast.get(best_spot, [])
+def calculate_best_time(hourly_forecast, level):
+    buckets = {"morning": [], "afternoon": []}
 
-    best_score = -999
-    best_hour = None
+    for spot, hours in hourly_forecast.items():
+        for h in hours:
+            bucket = get_time_bucket(h.get("time"))
+            if bucket not in buckets:
+                continue
 
-    for hour in hours:
-        score, _ = calculate_spot_score(best_spot, hour, level)
+            score, _ = calculate_spot_score(spot, h, level)
+            buckets[bucket].append(score)
 
-        if score > best_score:
-            best_score = score
-            best_hour = hour
+    avg = {
+        k: (sum(v) / len(v)) if v else 0
+        for k, v in buckets.items()
+    }
 
-    if not best_hour:
-        return None
-
-    start = best_hour.get("time")
-
-    try:
-        h = int(start.split(":")[0])
-        end = f"{(h + 1) % 24:02d}:00"
-    except:
-        end = start
-
-    return f"{start}–{end}"
-
-
-# --------------------
-# MORNING vs AFTERNOON
-# --------------------
-def analyze_day_parts(hourly_forecast, spot, level):
-    hours = hourly_forecast.get(spot, [])
-
-    morning_scores = []
-    afternoon_scores = []
-
-    for hour in hours:
-        time = hour.get("time")
-        if not time:
-            continue
-
-        try:
-            h = int(time.split(":")[0])
-        except:
-            continue
-
-        score, _ = calculate_spot_score(spot, hour, level)
-
-        if 5 <= h < 11:
-            morning_scores.append(score)
-        elif 11 <= h < 18:
-            afternoon_scores.append(score)
-
-    def avg(arr):
-        return sum(arr) / len(arr) if arr else 0
-
-    morning_avg = avg(morning_scores)
-    afternoon_avg = avg(afternoon_scores)
-
-    if morning_avg > afternoon_avg:
-        return "morning"
-    elif afternoon_avg > morning_avg:
-        return "afternoon"
-    else:
-        return None
+    return "morning" if avg["morning"] >= avg["afternoon"] else "afternoon"
 
 
 # --------------------
@@ -181,33 +144,36 @@ def build_recommendation(forecast, level, hourly_forecast=None):
     for spot, conditions in forecast.items():
         score, reasons = calculate_spot_score(spot, conditions, level)
 
-        results.append(
-            {
-                "spot": spot,
-                "score": score,
-                "reasons": reasons,
-            }
-        )
+        results.append({
+            "spot": spot,
+            "score": score,
+            "reasons": reasons
+        })
 
-    # сортировка по score
     results.sort(key=lambda x: -x["score"])
 
     best = results[0]
+
     alternatives = [x["spot"] for x in results[1:3]]
 
-    best_time = None
-    best_part = None
+    if best["score"] >= 75:
+        confidence = "high"
+    elif best["score"] >= 50:
+        confidence = "medium"
+    else:
+        confidence = "low"
 
-    if hourly_forecast:
-        best_time = find_best_time(hourly_forecast, best["spot"], level)
-        best_part = analyze_day_parts(hourly_forecast, best["spot"], level)
+    best_time = (
+        calculate_best_time(hourly_forecast, level)
+        if hourly_forecast else None
+    )
 
     return {
         "best": best["spot"],
         "score": best["score"],
         "reasons": best["reasons"],
         "conditions": forecast[best["spot"]],
+        "confidence": confidence,
         "alternatives": alternatives,
-        "best_time": best_time,
-        "best_part": best_part,
+        "best_time": best_time
     }
