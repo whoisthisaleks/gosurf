@@ -16,7 +16,7 @@ from aiogram.types import (
 )
 from aiogram.client.default import DefaultBotProperties
 
-from weather import build_forecast
+from weather import build_forecast, build_hourly_forecast
 from decision_engine import build_recommendation
 
 
@@ -36,7 +36,6 @@ bot = Bot(
 dp = Dispatcher()
 app = Flask(__name__)
 
-
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -49,32 +48,43 @@ def format_recommendation(rec):
     conditions = rec["conditions"]
     reasons = rec["reasons"]
     alternatives = rec["alternatives"]
+    best_time = rec.get("best_time")
 
     wave = round(conditions.get("wave_height", 0), 1)
     period = round(conditions.get("period", 0), 1)
     swell = conditions.get("swell_direction", "-")
     wind_speed = round(conditions.get("wind_speed", 0), 1)
     wind_dir = conditions.get("wind_direction", "-")
+    tide = conditions.get("tide")
 
     if wind_dir == "unknown":
         wind_text = "unavailable"
     else:
         wind_text = f"{wind_dir} {wind_speed} m/s"
 
-    text = (
-        f"<b>Best spot:</b> {spot}\n\n"
+    tide_text = tide if tide is not None else "-"
+
+    # порядок: сначала spot, потом time
+    text = f"<b>Best spot:</b> {spot}\n"
+
+    if best_time:
+        text += f"Best time: {best_time}\n\n"
+    else:
+        text += "\n"
+
+    text += (
         f"<b>Conditions:</b>\n"
         f"Wave: {wave} m\n"
         f"Period: {period} sec\n"
         f"Swell: {swell}\n"
-        f"Wind: {wind_text}\n\n"
+        f"Wind: {wind_text}\n"
+        f"Tide: {tide_text}\n\n"
         f"<b>Why:</b>\n"
     )
 
     for r in reasons[:3]:
         text += f"- {r}\n"
 
-    # ✅ исправлено: без пустой строки после заголовка
     if alternatives:
         text += "\n<b>Alternative spots:</b>\n"
         for i, alt in enumerate(alternatives):
@@ -171,8 +181,14 @@ async def choose_level(callback: CallbackQuery):
 # FORECAST
 # ----------------------
 async def send_forecast(message: Message, level: str, is_first=False):
-    forecast = build_forecast()
-    decision = build_recommendation(forecast, level)
+    hourly = build_hourly_forecast()
+    forecast = {spot: hours[0] for spot, hours in hourly.items()}
+
+    decision = build_recommendation(
+        forecast,
+        level,
+        hourly_forecast=hourly
+    )
 
     text = format_recommendation(decision)
 
@@ -199,6 +215,7 @@ async def send_forecast(message: Message, level: str, is_first=False):
 async def show_alternatives(callback: CallbackQuery):
     level = callback.data.replace("alts_", "")
     forecast = build_forecast()
+
     decision = build_recommendation(forecast, level)
 
     await callback.answer()
@@ -223,14 +240,17 @@ async def show_alternatives(callback: CallbackQuery):
         else:
             wind_text = f"{wind_dir} {wind_speed} m/s"
 
-        # ✅ добавлен отступ после Spot
+        tide = data.get("tide")
+        tide_text = tide if tide is not None else "-"
+
         text = (
             f"<b>Spot:</b> {spot}\n\n"
             f"<b>Conditions:</b>\n"
             f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
             f"Period: {round(data.get('period', 0), 1)} sec\n"
             f"Swell: {data.get('swell_direction', '-')}\n"
-            f"Wind: {wind_text}"
+            f"Wind: {wind_text}\n"
+            f"Tide: {tide_text}"
         )
 
         keyboard = InlineKeyboardMarkup(
