@@ -2,289 +2,171 @@ from spots import SPOTS
 
 
 def calculate_spot_score(
-        spot,
-        conditions,
-        level
+    spot,
+    conditions,
+    level
 ):
-
     score = 0
     reasons = []
 
-
-    height = conditions.get(
-        "wave_height",
-        0
-    )
-
-    period = conditions.get(
-        "period",
-        0
-    )
-
-    swell = conditions.get(
-        "swell_direction",
-        ""
-    )
-
-    wind_speed = conditions.get(
-        "wind_speed",
-        0
-    )
-
-    wind_direction = conditions.get(
-        "wind_direction",
-        ""
-    )
-
+    height = conditions.get("wave_height", 0)
+    period = conditions.get("period", 0)
+    swell = conditions.get("swell_direction", "")
+    wind_speed = conditions.get("wind_speed", 0)
+    wind_direction = conditions.get("wind_direction", "")
 
     spot_rules = SPOTS[spot]
-
-
 
     # --------------------
     # Level
     # --------------------
-
     if level == "beginner":
-
-        if spot_rules["beginner"]:
+        if spot_rules.get("beginner"):
             score += 20
-            reasons.append(
-                "good for your level"
-            )
-
-
+            reasons.append("good for your level")
+        else:
+            score -= 10
+            reasons.append("not ideal for beginners")
     else:
-
         score += 10
 
-
-
     # --------------------
-    # Wave height
+    # Wave height (с учётом спота)
     # --------------------
+    min_wave = spot_rules.get("min_wave", 0.5)
+    max_wave = spot_rules.get("max_wave", 3.0)
 
-    if level == "beginner":
-
-        if 0.5 <= height <= 1.5:
-
-            score += 30
-
-            reasons.append(
-                "safe for beginners"
-            )
-
-
-        elif height < 0.5:
-
-            score += 10
-
-            reasons.append(
-                "small waves"
-            )
-
-
-        else:
-
-            score += 5
-
-            reasons.append(
-                "big waves (challenging)"
-            )
-
-
+    if height < min_wave:
+        score -= 10
+        reasons.append("too small")
+    elif min_wave <= height <= max_wave:
+        score += 30
+        reasons.append("optimal wave size")
     else:
-
-        if 1.2 <= height <= 2.5:
-
-            score += 30
-
-            reasons.append(
-                "fun wave size"
-            )
-
-
-        elif height < 1.2:
-
-            score += 15
-
-            reasons.append(
-                "smaller waves"
-            )
-
-
+        # слишком большая
+        if level == "beginner":
+            score -= 20
+            reasons.append("too big for beginners")
         else:
-
-            score += 20
-
-            reasons.append(
-                "powerful waves"
-            )
-
-
-
-    # --------------------
-    # Period
-    # --------------------
-
-    if level == "beginner":
-
-        if period >= 12:
-
-            score += 15
-
-            reasons.append(
-                "strong swell period"
-            )
-
-        elif period >= 8:
-
             score += 10
+            reasons.append("powerful waves")
 
-
+    # --------------------
+    # Period (усилен)
+    # --------------------
+    if period >= 14:
+        score += 30
+        reasons.append("long clean swell")
+    elif period >= 12:
+        score += 25
+        reasons.append("strong swell")
+    elif period >= 10:
+        score += 15
+    elif period >= 8:
+        score += 5
     else:
-
-        if period >= 12:
-
-            score += 25
-
-            reasons.append(
-                "strong swell period"
-            )
-
-        elif period >= 8:
-
-            score += 15
-
-
+        score -= 10
+        reasons.append("weak swell")
 
     # --------------------
     # Swell direction
     # --------------------
+    if swell in spot_rules.get("swell", []):
+        score += 20 if level != "beginner" else 10
+        reasons.append("good swell direction")
+    else:
+        score -= 5
 
-    if swell in spot_rules["swell"]:
+    # --------------------
+    # Wind (сильно улучшено)
+    # --------------------
+    offshore = spot_rules.get("offshore", [])
+    onshore = spot_rules.get("onshore", [])
 
-        if level == "beginner":
+    if wind_direction in offshore:
+        if wind_speed <= 5:
+            score += 25
+            reasons.append("light offshore wind")
+        elif wind_speed <= 10:
             score += 15
-
+            reasons.append("offshore wind")
         else:
-            score += 30
+            score += 5
+            reasons.append("strong offshore wind")
 
-        reasons.append(
-            "good swell direction"
-        )
-
-
-    # --------------------
-    # Wind
-    # --------------------
-
-    if wind_direction in spot_rules.get("offshore", []):
-        score += 20
-        reasons.append("offshore wind")
-
-    elif (
-            wind_direction != "unknown"
-            and wind_direction in spot_rules.get("onshore", [])
-    ):
-        score -= 10
+    elif wind_direction in onshore:
+        score -= 20
         reasons.append("onshore wind")
 
+    elif wind_direction != "unknown":
+        score += 5
+        reasons.append("cross wind")
 
-    if wind_speed >= 10:
+    # штраф за сильный ветер
+    if wind_speed >= 12:
         score -= 10
-        reasons.append("strong wind")
+        reasons.append("too windy")
 
-
-
+    # --------------------
+    # Итог
+    # --------------------
     return score, reasons
 
 
-
 def build_recommendation(
-        forecast,
-        level
+    forecast,
+    level
 ):
-
-
     results = []
 
-
-
     for spot, conditions in forecast.items():
-
-
         score, reasons = calculate_spot_score(
             spot,
             conditions,
             level
         )
 
-
-        results.append(
-
-            {
-                "spot": spot,
-                "score": score,
-                "reasons": reasons
-            }
-
-        )
-
-
+        results.append({
+            "spot": spot,
+            "score": score,
+            "reasons": reasons
+        })
 
     spot_order = {
         spot: index
         for index, spot in enumerate(SPOTS)
     }
 
-
     results.sort(
         key=lambda x: (
             -x["score"],
             -int(
                 level == "beginner"
-                and SPOTS[x["spot"]]["beginner"]
+                and SPOTS[x["spot"]].get("beginner")
             ),
             spot_order[x["spot"]]
         )
     )
 
-
-
     best = results[0]
-
 
     alternatives = [
         x["spot"]
         for x in results[1:3]
     ]
 
-
-    if best["score"] >= 75:
+    if best["score"] >= 80:
         confidence = "high"
-
-    elif best["score"] >= 50:
+    elif best["score"] >= 55:
         confidence = "medium"
-
     else:
         confidence = "low"
 
-
-
     return {
-
         "best": best["spot"],
-
         "score": best["score"],
-
         "reasons": best["reasons"],
-
         "conditions": forecast[best["spot"]],
-
         "confidence": confidence,
-
-        "alternatives":
-            alternatives
-
+        "alternatives": alternatives
     }
