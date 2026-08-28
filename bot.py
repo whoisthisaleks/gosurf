@@ -7,13 +7,13 @@ from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
-    Message,
     CallbackQuery,
-    InlineKeyboardMarkup,
+    FSInputFile,
     InlineKeyboardButton,
+    InlineKeyboardMarkup,
     ReplyKeyboardMarkup,
     KeyboardButton,
-    FSInputFile
+    Message,
 )
 
 from weather import build_forecast
@@ -44,6 +44,7 @@ def get_main_keyboard():
         resize_keyboard=True,
     )
 
+
 # ----------------------
 # START
 # ----------------------
@@ -63,9 +64,19 @@ async def start(message: Message):
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Beginner", callback_data="level_beginner")],
-            [InlineKeyboardButton(text="Intermediate", callback_data="level_intermediate")]
-        ]
+            [
+                InlineKeyboardButton(
+                    text="Beginner",
+                    callback_data="level_beginner",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Intermediate",
+                    callback_data="level_intermediate",
+                )
+            ],
+        ],
     )
 
     await message.answer("What’s your level?", reply_markup=keyboard)
@@ -83,9 +94,19 @@ async def restart(message: Message):
 async def change_level(message: Message):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Beginner", callback_data="level_beginner")],
-            [InlineKeyboardButton(text="Intermediate", callback_data="level_intermediate")],
-        ]
+            [
+                InlineKeyboardButton(
+                    text="Beginner",
+                    callback_data="level_beginner",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Intermediate",
+                    callback_data="level_intermediate",
+                )
+            ],
+        ],
     )
 
     await message.answer("What’s your level?", reply_markup=keyboard)
@@ -127,8 +148,12 @@ async def send_forecast(message: Message, level: str, is_first: bool = False):
 
     photo = FSInputFile("assets/best.png")
 
-    reasons_text = "\n".join([f"• {r.capitalize()}" for r in decision["reasons"]])
-    alternatives_text = "\n".join([f"• {spot}" for spot in decision["alternatives"]])
+    reasons_text = "\n".join(
+        [f"• {reason.capitalize()}" for reason in decision["reasons"]]
+    )
+    alternatives_text = "\n".join(
+        [f"• {spot}" for spot in decision["alternatives"]]
+    )
 
     text = (
         f"**Best spot:** {best}\n"
@@ -150,18 +175,34 @@ async def send_forecast(message: Message, level: str, is_first: bool = False):
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Update", callback_data=f"update_{level}")],
-            [InlineKeyboardButton(text="Open map", callback_data=f"map_{best}")],
-            [InlineKeyboardButton(text="Alternative spots", callback_data=f"alts_{level}")]
-        ]
+            [
+                InlineKeyboardButton(
+                    text="Update",
+                    callback_data=f"update_{level}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Open map",
+                    callback_data=f"map_{best}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Alternative spots",
+                    callback_data=f"alts_{level}",
+                )
+            ],
+        ],
     )
 
     await message.answer_photo(
         photo=photo,
         caption=text,
         parse_mode="Markdown",
-        reply_markup=keyboard
+        reply_markup=keyboard,
     )
+
 
 # ----------------------
 # ALTERNATIVES
@@ -190,7 +231,7 @@ async def show_alternatives(callback: CallbackQuery):
     alt1_data = forecast.get(alt1, {})
     alt2_data = forecast.get(alt2, {})
 
-    # 📸 картинка перед блоком
+    # Image before alternatives.
     photo = FSInputFile("assets/alt.png")
     await callback.message.answer_photo(
         photo=photo,
@@ -211,14 +252,19 @@ async def show_alternatives(callback: CallbackQuery):
 
     keyboard1 = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Open map", callback_data=f"map_{alt1}")]
-        ]
+            [
+                InlineKeyboardButton(
+                    text="Open map",
+                    callback_data=f"map_{alt1}",
+                )
+            ]
+        ],
     )
 
     await callback.message.answer(
         text1,
         parse_mode="Markdown",
-        reply_markup=keyboard1
+        reply_markup=keyboard1,
     )
 
     # -------- SECOND --------
@@ -235,14 +281,19 @@ async def show_alternatives(callback: CallbackQuery):
 
     keyboard2 = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Open map", callback_data=f"map_{alt2}")]
-        ]
+            [
+                InlineKeyboardButton(
+                    text="Open map",
+                    callback_data=f"map_{alt2}",
+                )
+            ]
+        ],
     )
 
     await callback.message.answer(
         text2,
         parse_mode="Markdown",
-        reply_markup=keyboard2
+        reply_markup=keyboard2,
     )
 
 
