@@ -1,7 +1,6 @@
 import asyncio
 import os
-import threading
-from flask import Flask
+from flask import Flask, request
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher, F
@@ -13,23 +12,26 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
     KeyboardButton,
     Message,
+    Update,
 )
 
 from weather import build_forecast
 from decision_engine import build_recommendation
 
-
+# ----------------------
+# INIT
+# ----------------------
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://gosurf-bot.onrender.com
 
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
 dp = Dispatcher()
 app = Flask(__name__)
 
-
 # ----------------------
-# MAIN KEYBOARD
+# KEYBOARD (BOTTOM MENU)
 # ----------------------
 def get_main_keyboard():
     return ReplyKeyboardMarkup(
@@ -46,7 +48,6 @@ def get_main_keyboard():
         resize_keyboard=True,
     )
 
-
 # ----------------------
 # START
 # ----------------------
@@ -60,7 +61,6 @@ async def start(message: Message):
             "GoSurf — real-time ocean data analysis to pick the best surf spot right now\n\n"
             "<b>Hey surfer!</b>"
         ),
-        parse_mode="HTML",
         reply_markup=get_main_keyboard(),
     )
 
@@ -73,14 +73,12 @@ async def start(message: Message):
 
     await message.answer("What’s your level?", reply_markup=keyboard)
 
-
 # ----------------------
-# MENU
+# MAIN MENU
 # ----------------------
 @dp.message(F.text == "Restart bot")
 async def restart(message: Message):
     await start(message)
-
 
 @dp.message(F.text == "Change level")
 async def change_level(message: Message):
@@ -92,11 +90,9 @@ async def change_level(message: Message):
     )
     await message.answer("What’s your level?", reply_markup=keyboard)
 
-
 @dp.message(F.text == "Your profile")
 async def profile(message: Message):
     await message.answer("Profile coming soon", reply_markup=get_main_keyboard())
-
 
 @dp.message(F.text == "About & support")
 async def about(message: Message):
@@ -105,7 +101,6 @@ async def about(message: Message):
         "Support: @yourusername",
         reply_markup=get_main_keyboard(),
     )
-
 
 # ----------------------
 # LEVEL
@@ -116,11 +111,10 @@ async def choose_level(callback: CallbackQuery):
     await callback.answer()
     await send_forecast(callback.message, level, is_first=True)
 
-
 # ----------------------
 # FORECAST
 # ----------------------
-async def send_forecast(message: Message, level: str, is_first: bool = False):
+async def send_forecast(message: Message, level: str, is_first=False):
     forecast = build_forecast()
     decision = build_recommendation(forecast, level)
 
@@ -130,24 +124,21 @@ async def send_forecast(message: Message, level: str, is_first: bool = False):
     photo = FSInputFile("assets/best.png")
 
     reasons_text = "\n".join([f"• {r.capitalize()}" for r in decision["reasons"]])
-    alternatives_text = "\n".join([f"• {spot}" for spot in decision["alternatives"]])
+    alternatives_text = "\n".join([f"• {s}" for s in decision["alternatives"]])
 
     text = (
         f"<b>Best spot:</b> {best}\n"
-        f"Score: {decision['score']}/100\n\n"
-        f"<b>Why:</b>\n"
-        f"{reasons_text}\n\n"
+        f"<b>Score:</b> {decision['score']}/100\n\n"
+        f"<b>Why:</b>\n{reasons_text}\n\n"
         f"<b>Conditions:</b>\n"
         f"Wave: {round(best_data.get('wave_height', 0), 1)} m\n"
         f"Period: {round(best_data.get('period', 0), 1)} sec\n"
         f"Swell: {best_data.get('swell_direction', '-')}\n"
         f"Wind: {best_data.get('wind_direction', '-')} "
         f"{round(best_data.get('wind_speed', 0), 1)} m/s\n\n"
-        f"<b>Alternatives:</b>\n"
-        f"{alternatives_text}"
+        f"<b>Alternatives:</b>\n{alternatives_text}"
     )
 
-    # ✅ ПРАВИЛЬНЫЙ ПОРЯДОК КНОПОК
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Open map", callback_data=f"map_{best}")],
@@ -159,13 +150,11 @@ async def send_forecast(message: Message, level: str, is_first: bool = False):
     await message.answer_photo(
         photo=photo,
         caption=text,
-        parse_mode="HTML",
         reply_markup=keyboard,
     )
 
     if is_first:
         await message.answer("You can also use the menu at the bottom")
-
 
 # ----------------------
 # ALTERNATIVES
@@ -173,7 +162,6 @@ async def send_forecast(message: Message, level: str, is_first: bool = False):
 @dp.callback_query(F.data.startswith("alts_"))
 async def show_alternatives(callback: CallbackQuery):
     level = callback.data.replace("alts_", "")
-
     forecast = build_forecast()
     decision = build_recommendation(forecast, level)
 
@@ -182,62 +170,35 @@ async def show_alternatives(callback: CallbackQuery):
     alternatives = decision["alternatives"]
 
     if len(alternatives) < 2:
-        await callback.message.answer(
-            "No alternative spots available",
-            reply_markup=get_main_keyboard(),
-        )
+        await callback.message.answer("No alternative spots available")
         return
 
-    alt1, alt2 = alternatives[0], alternatives[1]
-
-    alt1_data = forecast.get(alt1, {})
-    alt2_data = forecast.get(alt2, {})
+    alt1, alt2 = alternatives[:2]
 
     photo = FSInputFile("assets/alt.png")
+    await callback.message.answer_photo(photo=photo)
 
-    await callback.message.answer_photo(
-        photo=photo,
-        reply_markup=get_main_keyboard(),
-    )
+    for spot in [alt1, alt2]:
+        data = forecast.get(spot, {})
 
-    # ✅ КНОПКА ВЕРНУЛАСЬ
-    keyboard1 = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Open map", callback_data=f"map_{alt1}")]
-        ]
-    )
+        text = (
+            f"<b>Spot:</b> {spot}\n"
+            f"<b>Score:</b> --\n\n"
+            f"<b>Conditions:</b>\n"
+            f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
+            f"Period: {round(data.get('period', 0), 1)} sec\n"
+            f"Swell: {data.get('swell_direction', '-')}\n"
+            f"Wind: {data.get('wind_direction', '-')} "
+            f"{round(data.get('wind_speed', 0), 1)} m/s"
+        )
 
-    keyboard2 = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Open map", callback_data=f"map_{alt2}")]
-        ]
-    )
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Open map", callback_data=f"map_{spot}")]
+            ]
+        )
 
-    text1 = (
-        f"<b>Spot:</b> {alt1}\n"
-        f"Score: 85/100\n\n"
-        f"<b>Conditions:</b>\n"
-        f"Wave: {round(alt1_data.get('wave_height', 0), 1)} m\n"
-        f"Period: {round(alt1_data.get('period', 0), 1)} sec\n"
-        f"Swell: {alt1_data.get('swell_direction', '-')}\n"
-        f"Wind: {alt1_data.get('wind_direction', '-')} "
-        f"{round(alt1_data.get('wind_speed', 0), 1)} m/s"
-    )
-
-    text2 = (
-        f"<b>Spot:</b> {alt2}\n"
-        f"Score: 80/100\n\n"
-        f"<b>Conditions:</b>\n"
-        f"Wave: {round(alt2_data.get('wave_height', 0), 1)} m\n"
-        f"Period: {round(alt2_data.get('period', 0), 1)} sec\n"
-        f"Swell: {alt2_data.get('swell_direction', '-')}\n"
-        f"Wind: {alt2_data.get('wind_direction', '-')} "
-        f"{round(alt2_data.get('wind_speed', 0), 1)} m/s"
-    )
-
-    await callback.message.answer(text1, parse_mode="HTML", reply_markup=keyboard1)
-    await callback.message.answer(text2, parse_mode="HTML", reply_markup=keyboard2)
-
+        await callback.message.answer(text, reply_markup=keyboard)
 
 # ----------------------
 # UPDATE
@@ -247,7 +208,6 @@ async def update_forecast(callback: CallbackQuery):
     level = callback.data.replace("update_", "")
     await callback.answer("Updating...")
     await send_forecast(callback.message, level)
-
 
 # ----------------------
 # MAP
@@ -264,34 +224,27 @@ async def open_map(callback: CallbackQuery):
     }
 
     await callback.answer()
-
-    await callback.message.answer(
-        f"{spot}\n{maps.get(spot)}",
-        reply_markup=get_main_keyboard(),
-    )
-
+    await callback.message.answer(f"{spot}\n{maps.get(spot)}")
 
 # ----------------------
-# WEB
+# WEBHOOK (CRITICAL)
 # ----------------------
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.model_validate(request.json)
+    asyncio.run(dp.feed_update(bot, update))
+    return "ok"
+
 @app.route("/")
 def home():
     return "GoSurf bot is running"
 
-
-def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
-
 # ----------------------
-# RUN
+# START
 # ----------------------
-async def main():
-    print("GoSurf bot started")
-    await dp.start_polling(bot)
-
+async def on_startup():
+    await bot.set_webhook(f"{WEBHOOK_URL}/{BOT_TOKEN}")
 
 if __name__ == "__main__":
-    threading.Thread(target=run_web).start()
-    asyncio.run(main())
+    asyncio.run(on_startup())
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
