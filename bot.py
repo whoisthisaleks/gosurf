@@ -1,5 +1,6 @@
 import asyncio
 import os
+
 from flask import Flask, request
 from dotenv import load_dotenv
 
@@ -26,15 +27,16 @@ WEBHOOK_URL = "https://gosurf-bot.onrender.com/webhook"
 
 bot = Bot(
     token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode="HTML")
+    default=DefaultBotProperties(parse_mode="HTML"),
 )
 
 dp = Dispatcher()
 app = Flask(__name__)
 
+loop = asyncio.get_event_loop()
 
 # ----------------------
-# MAIN KEYBOARD
+# KEYBOARD
 # ----------------------
 def get_main_keyboard():
     return ReplyKeyboardMarkup(
@@ -45,7 +47,6 @@ def get_main_keyboard():
         resize_keyboard=True,
     )
 
-
 # ----------------------
 # START
 # ----------------------
@@ -55,10 +56,7 @@ async def start(message: Message):
 
     await message.answer_photo(
         photo=photo,
-        caption=(
-            "GoSurf — real-time ocean data analysis\n\n"
-            "<b>Hey surfer!</b>"
-        ),
+        caption="GoSurf — real-time ocean data\n\n<b>Hey surfer!</b>",
         reply_markup=get_main_keyboard(),
     )
 
@@ -71,14 +69,12 @@ async def start(message: Message):
 
     await message.answer("What’s your level?", reply_markup=keyboard)
 
-
 # ----------------------
 # MENU
 # ----------------------
 @dp.message(F.text == "Restart bot")
 async def restart(message: Message):
     await start(message)
-
 
 @dp.message(F.text == "Change level")
 async def change_level(message: Message):
@@ -90,11 +86,9 @@ async def change_level(message: Message):
     )
     await message.answer("What’s your level?", reply_markup=keyboard)
 
-
 @dp.message(F.text == "Your profile")
 async def profile(message: Message):
     await message.answer("Profile coming soon", reply_markup=get_main_keyboard())
-
 
 @dp.message(F.text == "About & support")
 async def about(message: Message):
@@ -102,7 +96,6 @@ async def about(message: Message):
         "GoSurf helps you find the best surf spot in Bali.\n\nSupport: @yourusername",
         reply_markup=get_main_keyboard(),
     )
-
 
 # ----------------------
 # LEVEL
@@ -112,7 +105,6 @@ async def choose_level(callback: CallbackQuery):
     level = callback.data.replace("level_", "")
     await callback.answer()
     await send_forecast(callback.message, level, is_first=True)
-
 
 # ----------------------
 # FORECAST
@@ -154,7 +146,6 @@ async def send_forecast(message: Message, level: str, is_first=False):
     if is_first:
         await message.answer("You can also use the menu at the bottom")
 
-
 # ----------------------
 # ALTERNATIVES
 # ----------------------
@@ -192,7 +183,6 @@ async def show_alternatives(callback: CallbackQuery):
 
         await callback.message.answer(text, reply_markup=keyboard)
 
-
 # ----------------------
 # MAP
 # ----------------------
@@ -210,27 +200,26 @@ async def open_map(callback: CallbackQuery):
     await callback.answer()
     await callback.message.answer(f"{spot}\n{maps.get(spot)}")
 
-
 # ----------------------
 # WEBHOOK
 # ----------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     update = Update.model_validate(request.json)
-    asyncio.run(dp.feed_update(bot, update))
+    asyncio.run_coroutine_threadsafe(dp.feed_update(bot, update), loop)
     return "ok"
-
 
 @app.route("/")
 def home():
     return "GoSurf bot is running"
 
-
+# ----------------------
+# STARTUP
+# ----------------------
 async def on_startup():
     await bot.set_webhook(WEBHOOK_URL)
     print("Webhook set")
 
-
 if __name__ == "__main__":
-    asyncio.run(on_startup())
+    loop.run_until_complete(on_startup())
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
