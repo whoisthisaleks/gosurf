@@ -34,7 +34,7 @@ def level_keyboard():
     return kb.as_markup()
 
 
-def result_keyboard():
+def main_keyboard():
     kb = InlineKeyboardBuilder()
     kb.button(text="Open map", callback_data="map")
     kb.button(text="Update", callback_data="update")
@@ -43,9 +43,16 @@ def result_keyboard():
     return kb.as_markup()
 
 
+def map_keyboard():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Open map", callback_data="map")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
 # ===== FORMAT =====
 
-def build_start_text():
+def start_text():
     return """<b>Hey surfer!</b>
 
 Let's pick the best surf spot right now.
@@ -53,15 +60,12 @@ What's your level?
 """
 
 
-def build_result_text(best, alternatives):
+def result_text(best, alternatives):
     alt_text = "\n".join([s["name"] for s in alternatives])
 
-    return f"""<b>Best spot:</b>
-<b>{best['name']}</b>
+    return f"""<b>Best spot:</b> <b>{best['name']}</b>
 
-<b>Why:</b>
-Good wave size
-High tide
+<b>Why:</b> Good wave size & good for your level
 
 <b>Conditions:</b>
 Wave: {best['conditions']['wave']}
@@ -73,33 +77,52 @@ Wind: {best['conditions']['wind']}
 """
 
 
+def alt_text(spot):
+    return f"""<b>{spot['name']}</b>
+
+<b>Conditions:</b>
+Wave: {spot['conditions']['wave']}
+Period: {spot['conditions']['period']}
+Wind: {spot['conditions']['wind']}
+"""
+
+
 # ===== CORE =====
 
 async def send_start(message: Message):
-    photo = FSInputFile("assets/start.png")
-
     await message.answer_photo(
-        photo=photo,
-        caption=build_start_text(),
+        photo=FSInputFile("assets/start.png"),
+        caption=start_text(),
         reply_markup=level_keyboard()
     )
 
 
-async def send_result(message: Message, level: str):
+async def send_best(message: Message, level: str):
     weather = await get_weather()
 
     best = get_best_spot(weather, level)
     alternatives = get_alternatives(weather, level)
 
-    text = build_result_text(best, alternatives)
-
-    photo = FSInputFile("assets/best.png")
-
     await message.answer_photo(
-        photo=photo,
-        caption=text,
-        reply_markup=result_keyboard()
+        photo=FSInputFile("assets/best.png"),
+        caption=result_text(best, alternatives),
+        reply_markup=main_keyboard()
     )
+
+
+async def send_alternatives(message: Message, level: str):
+    weather = await get_weather()
+    alternatives = get_alternatives(weather, level)
+
+    for spot in alternatives:
+        await message.answer_photo(
+            photo=FSInputFile("assets/alt.png"),
+            caption=alt_text({
+                "name": spot["name"],
+                "conditions": get_best_spot(weather, level)["conditions"]
+            }),
+            reply_markup=map_keyboard()
+        )
 
 
 # ===== HANDLERS =====
@@ -114,34 +137,32 @@ async def set_level(callback: CallbackQuery):
     level = callback.data.split("_")[1]
     user_level[callback.from_user.id] = level
 
-    await send_result(callback.message, level)
+    await send_best(callback.message, level)
 
 
 @dp.callback_query(F.data == "update")
 async def update_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
-
     if not level:
         await send_start(callback.message)
         return
 
-    await send_result(callback.message, level)
+    await send_best(callback.message, level)
 
 
 @dp.callback_query(F.data == "alt")
 async def alt_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
-
     if not level:
         await send_start(callback.message)
         return
 
-    await send_result(callback.message, level)
+    await send_alternatives(callback.message, level)
 
 
 @dp.callback_query(F.data == "map")
 async def map_handler(callback: CallbackQuery):
-    await callback.message.answer("Map will be available soon.")
+    await callback.message.answer("Map coming soon")
 
 
 # ===== MAIN =====
