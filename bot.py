@@ -1,93 +1,170 @@
 import asyncio
 import logging
-import os
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.filters import CommandStart
+from aiogram.enums import ParseMode
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-
-from weather import build_forecast
-from decision_engine import get_best_spot
+from config import BOT_TOKEN
+from weather import get_weather
+from decision_engine import get_best_spot, get_alternatives
 
 logging.basicConfig(level=logging.INFO)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
 
-
-keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="Beginner"), KeyboardButton(text="Intermediate")],
-        [KeyboardButton(text="Advanced")],
-        [KeyboardButton(text="Update"), KeyboardButton(text="About")]
-    ],
-    resize_keyboard=True
-)
+# Храним выбранный уровень пользователя
+user_level = {}
 
 
-def format_response(r):
-    c = r["conditions"]
+# ===== UI =====
 
-    tide = f"{c['tide']} m" if c["tide"] else "unknown"
+def level_keyboard():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🟢 Beginner", callback_data="level_beginner")
+    kb.button(text="🟡 Intermediate", callback_data="level_intermediate")
+    kb.button(text="🔴 Advanced", callback_data="level_advanced")
+    kb.adjust(1)
+    return kb.as_markup()
 
-    text = f"""🏄‍♂️ {r['spot']}
 
-Best time: {r['best_time']}
+def result_keyboard():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🌊 Best spot", callback_data="best")
+    kb.button(text="🏄 Alternative spots", callback_data="alt")
+    kb.button(text="🔄 Update", callback_data="update")
+    kb.adjust(1)
+    return kb.as_markup()
 
-Score: {r['score']}/100
 
-Why:
-• {r['reason'][0]}
-• {r['reason'][1]}
+# ===== FORMATTERS =====
 
-Conditions:
-Wave: {c['wave_height']} m
-Period: {c['period']} sec
-Swell: {c['swell_direction']}
-Wind: {c['wind_direction']} {c['wind_speed']} m/s
-Tide: {tide}
+def format_spot(spot, reason, conditions):
+    return f"""
+<b>🌊 {spot}</b>
 
-Alternative spots:
-• {r['alternatives'][0]}
-• {r['alternatives'][1]}
+{reason}
+
+<b>Conditions:</b>
+• Wave: {conditions.get('wave', '—')}
+• Period: {conditions.get('period', '—')}
+• Wind: {conditions.get('wind', '—')}
 """
 
-    if c["source"] == "fallback":
-        text += "\n⚠️ Live data temporarily unavailable"
+
+def format_alternatives(spots):
+    text = "<b>🏄 Alternative spots:</b>\n\n"
+
+    for s in spots:
+        text += f"""
+<b>{s['name']}</b>
+{s['reason']}
+"""
 
     return text
 
 
-@dp.message(Command("start"))
-async def start(message: types.Message):
-    await message.answer(
-        "Hey surfer!\n\nLooking for waves?\nWe use real-time ocean data to find your best spot today.",
-        reply_markup=keyboard
+# ===== CORE =====
+
+async def send_best(message: Message, level: str):
+    weather = await get_weather()
+
+    if not weather:
+        await message.answer(
+            "⚠️ Some data may be unavailable from Stormglass\n\nTry again later."
+        )
+        return
+
+    best = get_best_spot(weather, level)
+
+    text = format_spot(
+        best["name"],
+        best["reason"],
+        best["conditions"]
+    )
+
+    photo = FSInputFile("assets/best.png")
+
+    await message.answer_photo(
+        photo=photo,
+        caption=text,
+        reply_markup=result_keyboard()
     )
 
 
-@dp.message(lambda m: m.text in ["Beginner", "Intermediate", "Advanced"])
-async def level(message: types.Message):
-    forecast = build_forecast()
-    result = get_best_spot(forecast, message.text.lower())
-    await message.answer(format_response(result))
+# ===== HANDLERS =====
 
-
-@dp.message(lambda m: m.text == "Update")
-async def update(message: types.Message):
-    forecast = build_forecast()
-    result = get_best_spot(forecast, "intermediate")
-    await message.answer(format_response(result))
-
-
-@dp.message(lambda m: m.text == "About")
-async def about(message: types.Message):
+@dp.message(CommandStart())
+async def start(message: Message):
     await message.answer(
-        "GoSurf helps you quickly find the best surf spot in Bali.\n\nWe check waves, wind, and conditions for you."
+        "<b>🏄 GoSurf</b>\n\nSelect your level:",
+        reply_markup=level_keyboard()
     )
 
+
+@dp.callback_query(F.data.startswith("level_"))
+async def set_level(callback: CallbackQuery):
+    level = callback.data.split("_")[1]
+    user_level[callback.from_user.id] = level
+
+    await callback.message.answer("🔍 Finding best spot...")
+    await send_best(callback.message, level)
+
+
+@dp.callback_query(F.data == "best")
+async def best_handler(callback: CallbackQuery):
+    level = user_level.get(callback.from_user.id)
+
+    if not level:
+        await callback.message.answer("Please select level first /start")
+        return
+
+    await callback.message.answer("🔄 Updating...")
+    await send_best(callback.message, level)
+
+
+@dp.callback_query(F.data == "alt")
+async def alt_handler(callback: CallbackQuery):
+    level = user_level.get(callback.from_user.id)
+
+    if not level:
+        await callback.message.answer("Please select level first /start")
+        return
+
+    weather = await get_weather()
+
+    if not weather:
+        await callback.message.answer("⚠️ No data available")
+        return
+
+    alternatives = get_alternatives(weather, level)
+
+    text = format_alternatives(alternatives)
+
+    photo = FSInputFile("assets/alt.png")
+
+    await callback.message.answer_photo(
+        photo=photo,
+        caption=text,
+        reply_markup=result_keyboard()
+    )
+
+
+@dp.callback_query(F.data == "update")
+async def update_handler(callback: CallbackQuery):
+    level = user_level.get(callback.from_user.id)
+
+    if not level:
+        await callback.message.answer("Please select level first /start")
+        return
+
+    await callback.message.answer("🔄 Updating conditions...")
+    await send_best(callback.message, level)
+
+
+# ===== MAIN =====
 
 async def main():
     await dp.start_polling(bot)
