@@ -1,15 +1,15 @@
-# ===== SIMPLE DECISION ENGINE (STABLE) =====
+# ===== MULTI-SPOT ENGINE (SMART MVP) =====
 
-def extract_conditions(weather):
+def extract_base(weather):
     try:
-        hour = weather["hours"][0]
+        h = weather["hours"][0]
 
         return {
-            "wave": hour.get("waveHeight", {}).get("sg"),
-            "period": hour.get("wavePeriod", {}).get("sg"),
-            "wind": hour.get("windSpeed", {}).get("sg"),
+            "wave": h.get("waveHeight", {}).get("sg"),
+            "period": h.get("wavePeriod", {}).get("sg"),
+            "wind": h.get("windSpeed", {}).get("sg"),
         }
-    except Exception:
+    except:
         return {
             "wave": None,
             "period": None,
@@ -17,63 +17,132 @@ def extract_conditions(weather):
         }
 
 
-def format_conditions(c):
-    return {
-        "wave": f"{c['wave']} m" if c["wave"] else "—",
-        "period": f"{c['period']} s" if c["period"] else "—",
-        "wind": f"{c['wind']} m/s" if c["wind"] else "—",
-    }
-
-
-def generate_reason(c):
-    return f"""
-Wave: {c['wave']} m
-Period: {c['period']} s
-Wind: {c['wind']} m/s
-"""
-
-
-# ===== SPOTS =====
+# ===== SPOT PROFILES =====
+# оффсеты имитируют реальные различия
 
 SPOTS = [
-    {"name": "Uluwatu", "level": ["advanced"]},
-    {"name": "Canggu", "level": ["intermediate", "advanced"]},
-    {"name": "Kuta", "level": ["beginner", "intermediate"]},
-    {"name": "Medewi", "level": ["intermediate", "advanced"]},
+    {
+        "name": "Kuta",
+        "level": ["beginner", "intermediate"],
+        "wave_offset": -0.5,
+        "wind_multiplier": 0.9,
+    },
+    {
+        "name": "Canggu",
+        "level": ["intermediate", "advanced"],
+        "wave_offset": 0,
+        "wind_multiplier": 1.0,
+    },
+    {
+        "name": "Uluwatu",
+        "level": ["advanced"],
+        "wave_offset": +0.7,
+        "wind_multiplier": 1.1,
+    },
+    {
+        "name": "Medewi",
+        "level": ["intermediate", "advanced"],
+        "wave_offset": -0.2,
+        "wind_multiplier": 0.8,
+    },
 ]
 
 
-# ===== PUBLIC API =====
+# ===== APPLY PROFILE =====
+
+def apply_spot(base, spot):
+    return {
+        "wave": round((base["wave"] or 0) + spot["wave_offset"], 2),
+        "period": base["period"],
+        "wind": round((base["wind"] or 0) * spot["wind_multiplier"], 2),
+    }
+
+
+# ===== SCORING =====
+
+def score(conditions, level):
+    wave = conditions["wave"] or 0
+    wind = conditions["wind"] or 0
+    period = conditions["period"] or 0
+
+    # базовый скоринг
+    score = 0
+
+    # wave
+    if level == "beginner":
+        score += max(0, 1 - abs(wave - 1.0))
+    elif level == "intermediate":
+        score += max(0, 1 - abs(wave - 1.5))
+    else:
+        score += min(1, wave / 3)
+
+    # wind (меньше лучше)
+    score += max(0, 1 - wind / 15)
+
+    # period
+    score += min(1, period / 12)
+
+    return round(score * 100 / 3, 1)
+
+
+# ===== FORMAT =====
+
+def format_conditions(c):
+    return {
+        "wave": f"{c['wave']} m",
+        "period": f"{c['period']} s",
+        "wind": f"{c['wind']} m/s",
+    }
+
+
+# ===== PUBLIC =====
 
 def get_best_spot(weather, level):
-    c = extract_conditions(weather)
+    base = extract_base(weather)
 
-    # простая логика MVP
+    scored = []
+
     for spot in SPOTS:
-        if level in spot["level"]:
-            return {
-                "name": spot["name"],
-                "reason": generate_reason(c),
-                "conditions": format_conditions(c)
-            }
+        if level not in spot["level"]:
+            continue
+
+        c = apply_spot(base, spot)
+        s = score(c, level)
+
+        scored.append((spot, c, s))
+
+    scored.sort(key=lambda x: x[2], reverse=True)
+
+    best = scored[0]
 
     return {
-        "name": "Kuta",
-        "reason": generate_reason(c),
-        "conditions": format_conditions(c)
+        "name": best[0]["name"],
+        "conditions": format_conditions(best[1]),
     }
 
 
 def get_alternatives(weather, level):
-    c = extract_conditions(weather)
+    base = extract_base(weather)
 
-    alternatives = []
+    scored = []
 
     for spot in SPOTS:
-        if level in spot["level"]:
-            alternatives.append({
-                "name": spot["name"],
-                "reason": generate_reason(c)
-            })
+        if level not in spot["level"]:
+            continue
 
-    return alternatives[1:3]
+        c = apply_spot(base, spot)
+        s = score(c, level)
+
+        scored.append((spot, c, s))
+
+    scored.sort(key=lambda x: x[2], reverse=True)
+
+    result = []
+
+    for spot, cond, _ in scored[1:3]:
+        result.append({
+            "name": spot["name"],
+            "conditions": format_conditions(cond)
+        })
+
+    return result
