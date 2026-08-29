@@ -15,75 +15,71 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
 
-# Храним выбранный уровень пользователя
 user_level = {}
 
 
-# ===== UI =====
+# ===== KEYBOARDS =====
 
 def level_keyboard():
     kb = InlineKeyboardBuilder()
-    kb.button(text="🟢 Beginner", callback_data="level_beginner")
-    kb.button(text="🟡 Intermediate", callback_data="level_intermediate")
-    kb.button(text="🔴 Advanced", callback_data="level_advanced")
+    kb.button(text="Beginner", callback_data="level_beginner")
+    kb.button(text="Intermediate", callback_data="level_intermediate")
+    kb.button(text="Advanced", callback_data="level_advanced")
     kb.adjust(1)
     return kb.as_markup()
 
 
 def result_keyboard():
     kb = InlineKeyboardBuilder()
-    kb.button(text="🌊 Best spot", callback_data="best")
-    kb.button(text="🏄 Alternative spots", callback_data="alt")
-    kb.button(text="🔄 Update", callback_data="update")
+    kb.button(text="Best spot", callback_data="best")
+    kb.button(text="Alternative spots", callback_data="alt")
+    kb.button(text="Update", callback_data="update")
     kb.adjust(1)
     return kb.as_markup()
 
 
-# ===== FORMATTERS =====
+# ===== FORMAT =====
 
-def format_spot(spot, reason, conditions):
+def build_message(best, alternatives, show_warning=False):
+    alt_text = "\n".join([f"• {s['name']}" for s in alternatives])
+
+    warning = ""
+    if show_warning:
+        warning = "\n\n<blockquote>Live data temporarily unavailable</blockquote>"
+
     return f"""
-<b>🌊 {spot}</b>
+<b>Hey surfer!</b>
 
-{reason}
+<b>{best['name']}</b>
+
+<b>Why:</b>
+{best['reason']}
 
 <b>Conditions:</b>
-• Wave: {conditions.get('wave', '—')}
-• Period: {conditions.get('period', '—')}
-• Wind: {conditions.get('wind', '—')}
+Wave: {best['conditions']['wave']}
+Period: {best['conditions']['period']}
+Wind: {best['conditions']['wind']}
+
+<b>Alternative spots:</b>
+{alt_text}
+{warning}
 """
-
-
-def format_alternatives(spots):
-    text = "<b>🏄 Alternative spots:</b>\n\n"
-
-    for s in spots:
-        text += f"""
-<b>{s['name']}</b>
-{s['reason']}
-"""
-
-    return text
 
 
 # ===== CORE =====
 
-async def send_best(message: Message, level: str):
+async def generate_response(message: Message, level: str):
     weather = await get_weather()
 
+    show_warning = False
+
     if not weather:
-        await message.answer(
-            "⚠️ Some data may be unavailable from Stormglass\n\nTry again later."
-        )
-        return
+        show_warning = True
 
     best = get_best_spot(weather, level)
+    alternatives = get_alternatives(weather, level)
 
-    text = format_spot(
-        best["name"],
-        best["reason"],
-        best["conditions"]
-    )
+    text = build_message(best, alternatives, show_warning)
 
     photo = FSInputFile("assets/best.png")
 
@@ -99,7 +95,7 @@ async def send_best(message: Message, level: str):
 @dp.message(CommandStart())
 async def start(message: Message):
     await message.answer(
-        "<b>🏄 GoSurf</b>\n\nSelect your level:",
+        "<b>Hey surfer!</b>\n\nSelect your level:",
         reply_markup=level_keyboard()
     )
 
@@ -109,8 +105,8 @@ async def set_level(callback: CallbackQuery):
     level = callback.data.split("_")[1]
     user_level[callback.from_user.id] = level
 
-    await callback.message.answer("🔍 Finding best spot...")
-    await send_best(callback.message, level)
+    await callback.message.answer("Looking for waves...")
+    await generate_response(callback.message, level)
 
 
 @dp.callback_query(F.data == "best")
@@ -118,11 +114,10 @@ async def best_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
 
     if not level:
-        await callback.message.answer("Please select level first /start")
+        await callback.message.answer("Select level first: /start")
         return
 
-    await callback.message.answer("🔄 Updating...")
-    await send_best(callback.message, level)
+    await generate_response(callback.message, level)
 
 
 @dp.callback_query(F.data == "alt")
@@ -130,26 +125,10 @@ async def alt_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
 
     if not level:
-        await callback.message.answer("Please select level first /start")
+        await callback.message.answer("Select level first: /start")
         return
 
-    weather = await get_weather()
-
-    if not weather:
-        await callback.message.answer("⚠️ No data available")
-        return
-
-    alternatives = get_alternatives(weather, level)
-
-    text = format_alternatives(alternatives)
-
-    photo = FSInputFile("assets/alt.png")
-
-    await callback.message.answer_photo(
-        photo=photo,
-        caption=text,
-        reply_markup=result_keyboard()
-    )
+    await generate_response(callback.message, level)
 
 
 @dp.callback_query(F.data == "update")
@@ -157,11 +136,11 @@ async def update_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
 
     if not level:
-        await callback.message.answer("Please select level first /start")
+        await callback.message.answer("Select level first: /start")
         return
 
-    await callback.message.answer("🔄 Updating conditions...")
-    await send_best(callback.message, level)
+    await callback.message.answer("Updating...")
+    await generate_response(callback.message, level)
 
 
 # ===== MAIN =====
