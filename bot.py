@@ -16,10 +16,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# -------------------------
-# UI
-# -------------------------
-level_keyboard = ReplyKeyboardMarkup(
+
+keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Beginner"), KeyboardButton(text="Intermediate")],
         [KeyboardButton(text="Advanced")],
@@ -28,101 +26,69 @@ level_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# -------------------------
-# TEXTS
-# -------------------------
-START_TEXT = """Hey surfer!
 
-Looking for waves?
-We use real-time ocean data to find your best spot today.
-"""
+def format_response(r):
+    c = r["conditions"]
 
-ABOUT_TEXT = """GoSurf helps you quickly find the best surf spot in Bali.
+    tide = f"{c['tide']} m" if c["tide"] else "unknown"
 
-We check waves, wind, and conditions for you — and give a simple recommendation so you can spend less time figuring it out and more time in the water.
-"""
+    text = f"""🏄‍♂️ {r['spot']}
 
-WARNING_TEXT = "\n\n⚠️ Some data may be unavailable right now."
+Best time: {r['best_time']}
 
-# -------------------------
-# HELPERS
-# -------------------------
-def format_response(result):
-    spot = result["spot"]
-    score = result["score"]
-    reason = result["reason"]
-    conditions = result["conditions"]
-    alternatives = result["alternatives"]
-    best_time = result["best_time"]
-
-    tide = conditions.get("tide")
-    tide_text = f"{tide} m" if tide else "unknown"
-
-    text = f"""🏄‍♂️ {spot}
-
-Best time: {best_time}
-
-Score: {score}/100
+Score: {r['score']}/100
 
 Why:
-• {reason[0]}
-• {reason[1]}
+• {r['reason'][0]}
+• {r['reason'][1]}
 
 Conditions:
-Wave: {conditions['wave_height']} m
-Period: {conditions['period']} sec
-Swell: {conditions['swell_direction']}
-Wind: {conditions['wind_direction']} {conditions['wind_speed']} m/s
-Tide: {tide_text}
+Wave: {c['wave_height']} m
+Period: {c['period']} sec
+Swell: {c['swell_direction']}
+Wind: {c['wind_direction']} {c['wind_speed']} m/s
+Tide: {tide}
 
 Alternative spots:
-• {alternatives[0]}
-• {alternatives[1]}
+• {r['alternatives'][0]}
+• {r['alternatives'][1]}
 """
 
-    if conditions["source"] == "fallback":
-        text += WARNING_TEXT
+    if c["source"] == "fallback":
+        text += "\n⚠️ Live data temporarily unavailable"
 
     return text
 
-# -------------------------
-# HANDLERS
-# -------------------------
+
 @dp.message(Command("start"))
-async def start_handler(message: types.Message):
-    await message.answer(START_TEXT, reply_markup=level_keyboard)
+async def start(message: types.Message):
+    await message.answer(
+        "Hey surfer!\n\nLooking for waves?\nWe use real-time ocean data to find your best spot today.",
+        reply_markup=keyboard
+    )
 
 
-@dp.message(lambda message: message.text in ["Beginner", "Intermediate", "Advanced"])
-async def level_handler(message: types.Message):
-    level = message.text.lower()
-
+@dp.message(lambda m: m.text in ["Beginner", "Intermediate", "Advanced"])
+async def level(message: types.Message):
     forecast = build_forecast()
-    result = get_best_spot(forecast, level)
-
-    text = format_response(result)
-
-    await message.answer(text)
+    result = get_best_spot(forecast, message.text.lower())
+    await message.answer(format_response(result))
 
 
-@dp.message(lambda message: message.text == "Update")
-async def update_handler(message: types.Message):
+@dp.message(lambda m: m.text == "Update")
+async def update(message: types.Message):
     forecast = build_forecast()
     result = get_best_spot(forecast, "intermediate")
-
-    text = format_response(result)
-
-    await message.answer(text)
+    await message.answer(format_response(result))
 
 
-@dp.message(lambda message: message.text == "About")
-async def about_handler(message: types.Message):
-    await message.answer(ABOUT_TEXT)
+@dp.message(lambda m: m.text == "About")
+async def about(message: types.Message):
+    await message.answer(
+        "GoSurf helps you quickly find the best surf spot in Bali.\n\nWe check waves, wind, and conditions for you."
+    )
 
 
-# -------------------------
-# MAIN
-# -------------------------
 async def main():
     await dp.start_polling(bot)
 
