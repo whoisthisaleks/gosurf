@@ -36,9 +36,6 @@ bot = Bot(
 dp = Dispatcher()
 app = Flask(__name__)
 
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
 
 # ----------------------
 # KEYBOARD
@@ -112,12 +109,15 @@ async def about(message: Message):
 
 
 # ----------------------
-# LEVEL
+# LEVEL (FIXED)
 # ----------------------
 @dp.callback_query(F.data.startswith("level_"))
 async def choose_level(callback: CallbackQuery):
     level = callback.data.replace("level_", "")
+
     await callback.answer()
+
+    # 🔥 ВАЖНО: используем message.answer, а не callback.message
     await send_forecast(callback.message, level, is_first=True)
 
 
@@ -134,40 +134,25 @@ async def send_forecast(message: Message, level: str, is_first=False):
     reasons = "\n".join([f"• {r}" for r in decision["reasons"]])
     alts = "\n".join([f"• {s}" for s in decision["alternatives"]])
 
-    # ----------------------
-    # NOTICE (partial data)
-    # ----------------------
-    notice = ""
-    if data.get("is_partial"):
-        notice = "> Some data may be incomplete due to limited availability\n\n"
-
-    # ----------------------
-    # FORMAT CONDITIONS
-    # ----------------------
     tide = data.get("tide")
-    tide_text = f"{tide} m" if tide else "not available"
-
-    wind_speed = data.get("wind_speed")
-    wind_dir = data.get("wind_direction")
-
-    if wind_speed is None:
-        wind_text = "unknown"
-    else:
-        wind_text = f"{wind_dir} {round(wind_speed,1)} m/s"
+    tide_text = f"{round(tide,1)} m" if tide else "not available"
 
     text = (
-        notice +
         f"<b>Best spot:</b> {best}\n"
         f"<b>Score:</b> {decision['score']}/100\n\n"
         f"<b>Why:</b>\n{reasons}\n\n"
         f"<b>Conditions:</b>\n"
-        f"Wave: {data.get('wave_height', '-')} m\n"
-        f"Period: {data.get('period', '-')} sec\n"
-        f"Swell: {data.get('swell_direction', '-')}\n"
-        f"Wind: {wind_text}\n"
+        f"Wave: {data.get('wave_height')} m\n"
+        f"Period: {data.get('period')} sec\n"
+        f"Swell: {data.get('swell_direction')}\n"
+        f"Wind: {data.get('wind_direction')} {data.get('wind_speed')} m/s\n"
         f"Tide: {tide_text}\n\n"
         f"<b>Alternative spots:</b>\n{alts}"
     )
+
+    # ⚠️ Плашка если fallback
+    if data.get("source") == "fallback":
+        text += "\n\n<i>Some data is estimated (Stormglass unavailable)</i>"
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -186,12 +171,12 @@ async def send_forecast(message: Message, level: str, is_first=False):
 
 
 # ----------------------
-# UPDATE (FIXED)
+# UPDATE (FIX)
 # ----------------------
 @dp.callback_query(F.data.startswith("update_"))
 async def update_forecast(callback: CallbackQuery):
     level = callback.data.replace("update_", "")
-    await callback.answer()
+    await callback.answer("Updating...")
     await send_forecast(callback.message, level)
 
 
@@ -219,33 +204,19 @@ async def show_alternatives(callback: CallbackQuery):
         data = forecast.get(spot, {})
 
         tide = data.get("tide")
-        tide_text = f"{tide} m" if tide else "not available"
-
-        wind_speed = data.get("wind_speed")
-        wind_dir = data.get("wind_direction")
-
-        if wind_speed is None:
-            wind_text = "unknown"
-        else:
-            wind_text = f"{wind_dir} {round(wind_speed,1)} m/s"
+        tide_text = f"{round(tide,1)} m" if tide else "not available"
 
         text = (
             f"<b>Spot:</b> {spot}\n\n"
             f"<b>Conditions:</b>\n"
-            f"Wave: {data.get('wave_height', '-')} m\n"
-            f"Period: {data.get('period', '-')} sec\n"
-            f"Swell: {data.get('swell_direction', '-')}\n"
-            f"Wind: {wind_text}\n"
+            f"Wave: {data.get('wave_height')} m\n"
+            f"Period: {data.get('period')} sec\n"
+            f"Swell: {data.get('swell_direction')}\n"
+            f"Wind: {data.get('wind_direction')} {data.get('wind_speed')} m/s\n"
             f"Tide: {tide_text}"
         )
 
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="Open map", callback_data=f"map_{spot}")]
-            ]
-        )
-
-        await callback.message.answer(text, reply_markup=keyboard)
+        await callback.message.answer(text)
 
 
 # ----------------------
@@ -267,14 +238,14 @@ async def open_map(callback: CallbackQuery):
 
 
 # ----------------------
-# WEBHOOK
+# WEBHOOK (FIXED)
 # ----------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
-    update = Update.model_validate(data)
+    update = Update.model_validate(request.json)
 
-    loop.run_until_complete(dp.feed_update(bot, update))
+    asyncio.run(dp.feed_update(bot, update))  # 🔥 фикс loop
+
     return "ok"
 
 
@@ -292,5 +263,5 @@ async def on_startup():
 
 
 if __name__ == "__main__":
-    loop.run_until_complete(on_startup())
+    asyncio.run(on_startup())
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
