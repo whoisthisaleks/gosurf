@@ -14,14 +14,12 @@ from decision_engine import get_best_spot, get_alternatives
 
 logging.basicConfig(level=logging.INFO)
 
-# ✅ FIX для aiogram 3.7+
 bot = Bot(
     token=BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 
 dp = Dispatcher()
-
 user_level = {}
 
 
@@ -47,20 +45,27 @@ def result_keyboard():
 
 # ===== FORMAT =====
 
-def build_message(best, alternatives, show_warning=False):
-    alt_text = "\n".join([f"• {s['name']}" for s in alternatives])
+def build_start_text():
+    return """<b>Hey surfer!</b>
 
-    warning = ""
-    if show_warning:
-        warning = "\n\n<blockquote>Live data temporarily unavailable</blockquote>"
+Let's pick the best surf spot right now.
 
-    return f"""
-<b>Hey surfer!</b>
+What's your level?
+"""
+
+
+def build_result_text(best, alternatives):
+    alt_text = "\n".join([s["name"] for s in alternatives])
+
+    return f"""<b>Best spot:</b>
 
 <b>{best['name']}</b>
 
 <b>Why:</b>
-{best['reason']}
+- good wave size
+
+Period: {best['conditions']['period']}
+Wind: {best['conditions']['wind']}
 
 <b>Conditions:</b>
 Wave: {best['conditions']['wave']}
@@ -69,23 +74,28 @@ Wind: {best['conditions']['wind']}
 
 <b>Alternative spots:</b>
 {alt_text}
-{warning}
 """
 
 
 # ===== CORE =====
 
-async def generate_response(message: Message, level: str):
-    weather = await get_weather()
+async def send_start(message: Message):
+    photo = FSInputFile("assets/start.png")
 
-    show_warning = False
-    if not weather:
-        show_warning = True
+    await message.answer_photo(
+        photo=photo,
+        caption=build_start_text(),
+        reply_markup=level_keyboard()
+    )
+
+
+async def send_result(message: Message, level: str):
+    weather = await get_weather()
 
     best = get_best_spot(weather, level)
     alternatives = get_alternatives(weather, level)
 
-    text = build_message(best, alternatives, show_warning)
+    text = build_result_text(best, alternatives)
 
     photo = FSInputFile("assets/best.png")
 
@@ -100,10 +110,7 @@ async def generate_response(message: Message, level: str):
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer(
-        "<b>Hey surfer!</b>\n\nSelect your level:",
-        reply_markup=level_keyboard()
-    )
+    await send_start(message)
 
 
 @dp.callback_query(F.data.startswith("level_"))
@@ -111,8 +118,7 @@ async def set_level(callback: CallbackQuery):
     level = callback.data.split("_")[1]
     user_level[callback.from_user.id] = level
 
-    await callback.message.answer("Looking for waves...")
-    await generate_response(callback.message, level)
+    await send_result(callback.message, level)
 
 
 @dp.callback_query(F.data == "best")
@@ -120,10 +126,10 @@ async def best_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
 
     if not level:
-        await callback.message.answer("Select level first: /start")
+        await send_start(callback.message)
         return
 
-    await generate_response(callback.message, level)
+    await send_result(callback.message, level)
 
 
 @dp.callback_query(F.data == "alt")
@@ -131,10 +137,10 @@ async def alt_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
 
     if not level:
-        await callback.message.answer("Select level first: /start")
+        await send_start(callback.message)
         return
 
-    await generate_response(callback.message, level)
+    await send_result(callback.message, level)
 
 
 @dp.callback_query(F.data == "update")
@@ -142,11 +148,10 @@ async def update_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
 
     if not level:
-        await callback.message.answer("Select level first: /start")
+        await send_start(callback.message)
         return
 
-    await callback.message.answer("Updating...")
-    await generate_response(callback.message, level)
+    await send_result(callback.message, level)
 
 
 # ===== MAIN =====
