@@ -1,102 +1,61 @@
-from spots import SPOTS
+# decision_engine.py
 
-
-def calculate_spot_score(spot, conditions, level):
+def score_spot(cond, level):
     score = 0
-    reasons = []
 
-    height = conditions.get("wave_height", 0)
-    period = conditions.get("period", 0)
-    swell = conditions.get("swell_direction", "")
-    wind_speed = conditions.get("wind_speed", 0)
-    wind_direction = conditions.get("wind_direction", "")
-    tide = conditions.get("tide")
+    wave = cond.get("wave_height", 0)
+    period = cond.get("period", 0)
+    wind = cond.get("wind_speed", 0)
 
-    rules = SPOTS[spot]
-
-    # LEVEL
+    # --- LEVEL RULES ---
     if level == "beginner":
-        if rules["beginner"]:
+        if 0.5 <= wave <= 1.2:
+            score += 40
+        if period >= 10:
             score += 20
-            reasons.append("good for your level")
+        if wind < 5:
+            score += 20
+
     elif level == "intermediate":
-        score += 10
-    else:
-        score += 15
+        if 0.8 <= wave <= 2.0:
+            score += 40
+        if period >= 11:
+            score += 20
+        if wind < 7:
+            score += 20
 
-    # HEIGHT
-    if level == "beginner":
-        if 0.5 <= height <= 1.5:
-            score += 30
-            reasons.append("safe wave size")
-    elif level == "intermediate":
-        if 1.0 <= height <= 2.0:
-            score += 30
-            reasons.append("fun wave size")
-    else:
-        if height >= 1.5:
-            score += 35
-            reasons.append("powerful waves")
+    elif level == "advanced":
+        if wave >= 1.5:
+            score += 40
+        if period >= 12:
+            score += 20
+        if wind < 10:
+            score += 20
 
-    # PERIOD
-    if period >= 12:
-        score += 20
-        reasons.append("long period swell")
-    elif period >= 8:
-        score += 10
-
-    # SWELL
-    if swell in rules["swell"]:
-        score += 20
-        reasons.append("clean swell direction")
-
-    # WIND
-    if wind_direction in rules.get("offshore", []):
-        score += 20
-        reasons.append("offshore wind")
-    elif wind_direction in rules.get("onshore", []):
-        score -= 10
-        reasons.append("onshore wind")
-
-    if wind_speed >= 10:
-        score -= 10
-
-    # TIDE
-    if tide is not None:
-        if tide < 0.8:
-            state = "low"
-        elif tide < 1.8:
-            state = "mid"
-        else:
-            state = "high"
-
-        if state in rules.get("tide_preference", []):
-            score += 10
-            reasons.append("good tide")
-
-    return score, reasons
+    return score
 
 
-def build_recommendation(forecast, level):
+def get_best_spot(forecast, level):
     results = []
 
-    for spot, conditions in forecast.items():
-        score, reasons = calculate_spot_score(spot, conditions, level)
+    for spot, cond in forecast.items():
+        score = score_spot(cond, level)
 
         results.append({
             "spot": spot,
             "score": score,
-            "reasons": reasons
+            "wave_height": cond.get("wave_height"),
+            "period": cond.get("period"),
+            "swell_direction": cond.get("swell_direction"),
+            "wind_speed": cond.get("wind_speed"),
+            "wind_direction": cond.get("wind_direction"),
+            "tide": cond.get("tide")
         })
 
-    results.sort(key=lambda x: -x["score"])
+    # сортировка
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
 
     best = results[0]
+    alternatives = [r["spot"] for r in results[1:3]]
 
-    return {
-        "best": best["spot"],
-        "score": best["score"],
-        "reasons": best["reasons"],
-        "conditions": forecast[best["spot"]],
-        "alternatives": [x["spot"] for x in results[1:3]]
-    }
+    return best, alternatives
