@@ -36,6 +36,8 @@ bot = Bot(
 dp = Dispatcher()
 app = Flask(__name__)
 
+webhook_initialized = False
+
 
 # ----------------------
 # KEYBOARD
@@ -164,7 +166,7 @@ async def send_forecast(message: Message, level: str, is_first=False):
 
 
 # ----------------------
-# UPDATE BUTTON (FIXED)
+# UPDATE
 # ----------------------
 @dp.callback_query(F.data.startswith("update_"))
 async def update_forecast(callback: CallbackQuery):
@@ -184,16 +186,10 @@ async def show_alternatives(callback: CallbackQuery):
 
     await callback.answer()
 
-    alts = decision["alternatives"]
-
-    if not alts:
-        await callback.message.answer("No alternative spots")
-        return
-
     photo = FSInputFile("assets/alt.png")
     await callback.message.answer_photo(photo=photo)
 
-    for spot in alts[:2]:
+    for spot in decision["alternatives"][:2]:
         data = forecast.get(spot, {})
 
         tide = data.get("tide")
@@ -209,13 +205,7 @@ async def show_alternatives(callback: CallbackQuery):
             f"Tide: {tide_text}"
         )
 
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="Open map", callback_data=f"map_{spot}")]
-            ]
-        )
-
-        await callback.message.answer(text, reply_markup=keyboard)
+        await callback.message.answer(text)
 
 
 # ----------------------
@@ -237,6 +227,18 @@ async def open_map(callback: CallbackQuery):
 
 
 # ----------------------
+# WEBHOOK INIT (FIX)
+# ----------------------
+@app.before_request
+def ensure_webhook():
+    global webhook_initialized
+    if not webhook_initialized:
+        asyncio.run(bot.set_webhook(WEBHOOK_URL))
+        webhook_initialized = True
+        print("Webhook initialized")
+
+
+# ----------------------
 # WEBHOOK
 # ----------------------
 @app.route("/webhook", methods=["POST"])
@@ -250,15 +252,6 @@ def webhook():
 @app.route("/")
 def home():
     return "GoSurf bot is running"
-
-
-# ----------------------
-# INIT WEBHOOK (CRITICAL FIX)
-# ----------------------
-@app.before_first_request
-def init_webhook():
-    asyncio.run(bot.set_webhook(WEBHOOK_URL))
-    print("Webhook initialized")
 
 
 # ----------------------
