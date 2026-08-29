@@ -43,9 +43,9 @@ def main_keyboard():
     return kb.as_markup()
 
 
-def map_keyboard():
+def map_keyboard(spot_name: str):
     kb = InlineKeyboardBuilder()
-    kb.button(text="Open map", callback_data="map")
+    kb.button(text="Open map", callback_data=f"map_{spot_name}")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -77,7 +77,7 @@ Wind: {best['conditions']['wind']}
 """
 
 
-def alt_text(spot):
+def alt_text_block(spot):
     return f"""<b>{spot['name']}</b>
 
 <b>Conditions:</b>
@@ -117,11 +117,8 @@ async def send_alternatives(message: Message, level: str):
     for spot in alternatives:
         await message.answer_photo(
             photo=FSInputFile("assets/alt.png"),
-            caption=alt_text({
-                "name": spot["name"],
-                "conditions": get_best_spot(weather, level)["conditions"]
-            }),
-            reply_markup=map_keyboard()
+            caption=alt_text_block(spot),
+            reply_markup=map_keyboard(spot["name"])
         )
 
 
@@ -160,8 +157,14 @@ async def alt_handler(callback: CallbackQuery):
     await send_alternatives(callback.message, level)
 
 
-@dp.callback_query(F.data == "map")
+@dp.callback_query(F.data.startswith("map_"))
 async def map_handler(callback: CallbackQuery):
+    spot = callback.data.replace("map_", "")
+    await callback.message.answer(f"Opening map for {spot} soon")
+
+
+@dp.callback_query(F.data == "map")
+async def map_main_handler(callback: CallbackQuery):
     await callback.message.answer("Map coming soon")
 
 
@@ -173,4 +176,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())io.run(main())
