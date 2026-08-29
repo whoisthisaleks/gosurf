@@ -36,7 +36,8 @@ bot = Bot(
 dp = Dispatcher()
 app = Flask(__name__)
 
-webhook_initialized = False
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
 
 # ----------------------
@@ -133,20 +134,22 @@ async def send_forecast(message: Message, level: str, is_first=False):
     reasons = "\n".join([f"• {r}" for r in decision["reasons"]])
     alts = "\n".join([f"• {s}" for s in decision["alternatives"]])
 
-    tide = data.get("tide")
-    tide_text = f"{tide} m" if tide else "unknown"
+    tide_text = (
+        f"{data['tide']} m" if data.get("tide") is not None else "unknown"
+    )
 
     text = (
         f"<b>Best spot:</b> {best}\n"
         f"<b>Score:</b> {decision['score']}/100\n\n"
         f"<b>Why:</b>\n{reasons}\n\n"
         f"<b>Conditions:</b>\n"
-        f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
-        f"Period: {round(data.get('period', 0), 1)} sec\n"
-        f"Swell: {data.get('swell_direction', '-')}\n"
-        f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s\n"
+        f"Wave: {data['wave_height']} m\n"
+        f"Period: {data['period']} sec\n"
+        f"Swell: {data['swell_direction']}\n"
+        f"Wind: {data['wind_direction']} {data['wind_speed']} m/s\n"
         f"Tide: {tide_text}\n\n"
-        f"<b>Alternative spots:</b>\n{alts}"
+        f"<b>Alternative spots:</b>\n{alts}\n\n"
+        f"<i>Some data may be unavailable from Stormglass</i>"
     )
 
     keyboard = InlineKeyboardMarkup(
@@ -171,7 +174,7 @@ async def send_forecast(message: Message, level: str, is_first=False):
 @dp.callback_query(F.data.startswith("update_"))
 async def update_forecast(callback: CallbackQuery):
     level = callback.data.replace("update_", "")
-    await callback.answer()
+    await callback.answer("Updating...")
     await send_forecast(callback.message, level)
 
 
@@ -186,26 +189,39 @@ async def show_alternatives(callback: CallbackQuery):
 
     await callback.answer()
 
+    alts = decision["alternatives"]
+
+    if not alts:
+        await callback.message.answer("No alternative spots")
+        return
+
     photo = FSInputFile("assets/alt.png")
     await callback.message.answer_photo(photo=photo)
 
-    for spot in decision["alternatives"][:2]:
+    for spot in alts[:2]:
         data = forecast.get(spot, {})
 
-        tide = data.get("tide")
-        tide_text = f"{tide} m" if tide else "unknown"
+        tide_text = (
+            f"{data['tide']} m" if data.get("tide") is not None else "unknown"
+        )
 
         text = (
             f"<b>Spot:</b> {spot}\n\n"
             f"<b>Conditions:</b>\n"
-            f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
-            f"Period: {round(data.get('period', 0), 1)} sec\n"
+            f"Wave: {data.get('wave_height', 0)} m\n"
+            f"Period: {data.get('period', 0)} sec\n"
             f"Swell: {data.get('swell_direction', '-')}\n"
-            f"Wind: {data.get('wind_direction', '-')} {round(data.get('wind_speed', 0), 1)} m/s\n"
+            f"Wind: {data.get('wind_direction', '-')} {data.get('wind_speed', 0)} m/s\n"
             f"Tide: {tide_text}"
         )
 
-        await callback.message.answer(text)
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Open map", callback_data=f"map_{spot}")]
+            ]
+        )
+
+        await callback.message.answer(text, reply_markup=keyboard)
 
 
 # ----------------------
@@ -227,25 +243,13 @@ async def open_map(callback: CallbackQuery):
 
 
 # ----------------------
-# WEBHOOK INIT (FIX)
-# ----------------------
-@app.before_request
-def ensure_webhook():
-    global webhook_initialized
-    if not webhook_initialized:
-        asyncio.run(bot.set_webhook(WEBHOOK_URL))
-        webhook_initialized = True
-        print("Webhook initialized")
-
-
-# ----------------------
 # WEBHOOK
 # ----------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
     update = Update.model_validate(data)
-    asyncio.run(dp.feed_update(bot, update))
+    loop.run_until_complete(dp.feed_update(bot, update))
     return "ok"
 
 
@@ -255,7 +259,10 @@ def home():
 
 
 # ----------------------
-# RUN
+# STARTUP FIX
 # ----------------------
 if __name__ == "__main__":
+    loop.run_until_complete(bot.set_webhook(WEBHOOK_URL))
+    print("Webhook set")
+
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
