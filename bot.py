@@ -36,9 +36,9 @@ def level_keyboard():
 
 def result_keyboard():
     kb = InlineKeyboardBuilder()
-    kb.button(text="Best spot", callback_data="best")
-    kb.button(text="Alternative spots", callback_data="alt")
+    kb.button(text="Open map", callback_data="map")
     kb.button(text="Update", callback_data="update")
+    kb.button(text="Alternative spots", callback_data="alt")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -49,7 +49,6 @@ def build_start_text():
     return """<b>Hey surfer!</b>
 
 Let's pick the best surf spot right now.
-
 What's your level?
 """
 
@@ -58,14 +57,11 @@ def build_result_text(best, alternatives):
     alt_text = "\n".join([s["name"] for s in alternatives])
 
     return f"""<b>Best spot:</b>
-
 <b>{best['name']}</b>
 
 <b>Why:</b>
-- good wave size
-
-Period: {best['conditions']['period']}
-Wind: {best['conditions']['wind']}
+Good wave size
+High tide
 
 <b>Conditions:</b>
 Wave: {best['conditions']['wave']}
@@ -121,8 +117,8 @@ async def set_level(callback: CallbackQuery):
     await send_result(callback.message, level)
 
 
-@dp.callback_query(F.data == "best")
-async def best_handler(callback: CallbackQuery):
+@dp.callback_query(F.data == "update")
+async def update_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
 
     if not level:
@@ -143,15 +139,9 @@ async def alt_handler(callback: CallbackQuery):
     await send_result(callback.message, level)
 
 
-@dp.callback_query(F.data == "update")
-async def update_handler(callback: CallbackQuery):
-    level = user_level.get(callback.from_user.id)
-
-    if not level:
-        await send_start(callback.message)
-        return
-
-    await send_result(callback.message, level)
+@dp.callback_query(F.data == "map")
+async def map_handler(callback: CallbackQuery):
+    await callback.message.answer("Map will be available soon.")
 
 
 # ===== MAIN =====
