@@ -1,10 +1,12 @@
 import asyncio
 import logging
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.filters import CommandStart
 from aiogram.enums import ParseMode
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.client.default import DefaultBotProperties
 
 from config import BOT_TOKEN
 from weather import get_weather
@@ -12,7 +14,12 @@ from decision_engine import get_best_spot, get_alternatives
 
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+# ✅ FIX для aiogram 3.7+
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
+
 dp = Dispatcher()
 
 user_level = {}
@@ -72,7 +79,6 @@ async def generate_response(message: Message, level: str):
     weather = await get_weather()
 
     show_warning = False
-
     if not weather:
         show_warning = True
 
@@ -146,6 +152,7 @@ async def update_handler(callback: CallbackQuery):
 # ===== MAIN =====
 
 async def main():
+    print("BOT STARTED")
     await dp.start_polling(bot)
 
 
