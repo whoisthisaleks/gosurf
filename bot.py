@@ -118,13 +118,13 @@ async def about(message: Message):
 async def choose_level(callback: CallbackQuery):
     level = callback.data.replace("level_", "")
     await callback.answer()
-    await send_forecast(callback.message, level, is_first=True)
+    await send_forecast(callback.message, level)
 
 
 # ----------------------
 # FORECAST
 # ----------------------
-async def send_forecast(message: Message, level: str, is_first=False):
+async def send_forecast(message: Message, level: str):
     forecast = build_forecast()
     decision = build_recommendation(forecast, level)
 
@@ -134,19 +134,17 @@ async def send_forecast(message: Message, level: str, is_first=False):
     reasons = "\n".join([f"• {r}" for r in decision["reasons"]])
     alts = "\n".join([f"• {s}" for s in decision["alternatives"]])
 
-    tide_text = (
-        f"{data['tide']} m" if data.get("tide") is not None else "unknown"
-    )
+    tide_text = f"{data.get('tide')} m" if data.get("tide") else "unknown"
 
     text = (
         f"<b>Best spot:</b> {best}\n"
         f"<b>Score:</b> {decision['score']}/100\n\n"
         f"<b>Why:</b>\n{reasons}\n\n"
         f"<b>Conditions:</b>\n"
-        f"Wave: {data['wave_height']} m\n"
-        f"Period: {data['period']} sec\n"
-        f"Swell: {data['swell_direction']}\n"
-        f"Wind: {data['wind_direction']} {data['wind_speed']} m/s\n"
+        f"Wave: {data.get('wave_height', 0)} m\n"
+        f"Period: {data.get('period', 0)} sec\n"
+        f"Swell: {data.get('swell_direction', '-')}\n"
+        f"Wind: {data.get('wind_direction', '-')} {data.get('wind_speed', 0)} m/s\n"
         f"Tide: {tide_text}\n\n"
         f"<b>Alternative spots:</b>\n{alts}\n\n"
         f"<i>Some data may be unavailable from Stormglass</i>"
@@ -161,11 +159,7 @@ async def send_forecast(message: Message, level: str, is_first=False):
     )
 
     photo = FSInputFile("assets/best.png")
-
     await message.answer_photo(photo=photo, caption=text, reply_markup=keyboard)
-
-    if is_first:
-        await message.answer("You can also use the menu at the bottom")
 
 
 # ----------------------
@@ -189,21 +183,10 @@ async def show_alternatives(callback: CallbackQuery):
 
     await callback.answer()
 
-    alts = decision["alternatives"]
-
-    if not alts:
-        await callback.message.answer("No alternative spots")
-        return
-
-    photo = FSInputFile("assets/alt.png")
-    await callback.message.answer_photo(photo=photo)
-
-    for spot in alts[:2]:
+    for spot in decision["alternatives"][:2]:
         data = forecast.get(spot, {})
 
-        tide_text = (
-            f"{data['tide']} m" if data.get("tide") is not None else "unknown"
-        )
+        tide_text = f"{data.get('tide')} m" if data.get("tide") else "unknown"
 
         text = (
             f"<b>Spot:</b> {spot}\n\n"
@@ -215,13 +198,7 @@ async def show_alternatives(callback: CallbackQuery):
             f"Tide: {tide_text}"
         )
 
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="Open map", callback_data=f"map_{spot}")]
-            ]
-        )
-
-        await callback.message.answer(text, reply_markup=keyboard)
+        await callback.message.answer(text)
 
 
 # ----------------------
@@ -243,14 +220,21 @@ async def open_map(callback: CallbackQuery):
 
 
 # ----------------------
-# WEBHOOK
+# WEBHOOK (SAFE)
 # ----------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
-    update = Update.model_validate(data)
-    loop.run_until_complete(dp.feed_update(bot, update))
-    return "ok"
+    try:
+        data = request.json
+        print("UPDATE:", data)
+
+        update = Update.model_validate(data)
+        loop.run_until_complete(dp.feed_update(bot, update))
+
+        return "ok"
+    except Exception as e:
+        print("ERROR:", e)
+        return "error", 500
 
 
 @app.route("/")
@@ -259,10 +243,12 @@ def home():
 
 
 # ----------------------
-# STARTUP FIX
+# START
 # ----------------------
 if __name__ == "__main__":
+    loop.run_until_complete(bot.delete_webhook())
     loop.run_until_complete(bot.set_webhook(WEBHOOK_URL))
-    print("Webhook set")
+
+    print("Webhook reset & set")
 
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
