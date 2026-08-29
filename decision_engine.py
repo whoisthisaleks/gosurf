@@ -1,36 +1,79 @@
+# ===== SIMPLE DECISION ENGINE (STABLE) =====
+
+def extract_conditions(weather):
+    try:
+        hour = weather["hours"][0]
+
+        return {
+            "wave": hour.get("waveHeight", {}).get("sg"),
+            "period": hour.get("wavePeriod", {}).get("sg"),
+            "wind": hour.get("windSpeed", {}).get("sg"),
+        }
+    except Exception:
+        return {
+            "wave": None,
+            "period": None,
+            "wind": None,
+        }
+
+
+def format_conditions(c):
+    return {
+        "wave": f"{c['wave']} m" if c["wave"] else "—",
+        "period": f"{c['period']} s" if c["period"] else "—",
+        "wind": f"{c['wind']} m/s" if c["wind"] else "—",
+    }
+
+
+def generate_reason(c):
+    return f"""
+Wave: {c['wave']} m
+Period: {c['period']} s
+Wind: {c['wind']} m/s
+"""
+
+
+# ===== SPOTS =====
+
 SPOTS = [
-    {"name": "Uluwatu", "lat": -8.818, "lon": 115.087, "level": "pro"},
-    {"name": "Canggu", "lat": -8.651, "lon": 115.138, "level": "mid"},
-    {"name": "Kuta", "lat": -8.717, "lon": 115.168, "level": "beginner"},
-    {"name": "Medewi", "lat": -8.426, "lon": 114.793, "level": "mid"},
+    {"name": "Uluwatu", "level": ["advanced"]},
+    {"name": "Canggu", "level": ["intermediate", "advanced"]},
+    {"name": "Kuta", "level": ["beginner", "intermediate"]},
+    {"name": "Medewi", "level": ["intermediate", "advanced"]},
 ]
 
 
-def get_best_spot(spots_data):
-    return sorted(spots_data, key=lambda x: x["score"], reverse=True)[0]
+# ===== PUBLIC API =====
+
+def get_best_spot(weather, level):
+    c = extract_conditions(weather)
+
+    # простая логика MVP
+    for spot in SPOTS:
+        if level in spot["level"]:
+            return {
+                "name": spot["name"],
+                "reason": generate_reason(c),
+                "conditions": format_conditions(c)
+            }
+
+    return {
+        "name": "Kuta",
+        "reason": generate_reason(c),
+        "conditions": format_conditions(c)
+    }
 
 
-def score_spot(weather, level):
-    score = 0
+def get_alternatives(weather, level):
+    c = extract_conditions(weather)
 
-    wave = weather["wave"]
-    period = weather["period"]
-    wind = weather["wind"]
+    alternatives = []
 
-    if level == "beginner":
-        if 0.8 <= wave <= 1.5:
-            score += 3
-    elif level == "mid":
-        if 1.2 <= wave <= 2:
-            score += 3
-    else:
-        if wave >= 1.5:
-            score += 3
+    for spot in SPOTS:
+        if level in spot["level"]:
+            alternatives.append({
+                "name": spot["name"],
+                "reason": generate_reason(c)
+            })
 
-    if period >= 10:
-        score += 2
-
-    if wind < 6:
-        score += 2
-
-    return score
+    return alternatives[1:3]
