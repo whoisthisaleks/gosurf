@@ -4,9 +4,9 @@ import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.filters import CommandStart
-from aiogram.enums import ParseMode
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN
 from weather import get_weather
@@ -50,7 +50,7 @@ def map_keyboard(spot_name: str):
     return kb.as_markup()
 
 
-# ===== FORMAT =====
+# ===== TEXT =====
 
 def start_text():
     return """<b>Hey surfer!</b>
@@ -114,12 +114,19 @@ async def send_alternatives(message: Message, level: str):
     weather = await get_weather()
     alternatives = get_alternatives(weather, level)
 
+    if not alternatives:
+        await message.answer("No alternative spots")
+        return
+
     for spot in alternatives:
-        await message.answer_photo(
-            photo=FSInputFile("assets/alt.png"),
-            caption=alt_text_block(spot),
-            reply_markup=map_keyboard(spot["name"])
-        )
+        try:
+            await message.answer_photo(
+                photo=FSInputFile("assets/alt.png"),
+                caption=alt_text_block(spot),
+                reply_markup=map_keyboard(spot["name"])
+            )
+        except Exception as e:
+            print("ALT ERROR:", e)
 
 
 # ===== HANDLERS =====
@@ -140,6 +147,7 @@ async def set_level(callback: CallbackQuery):
 @dp.callback_query(F.data == "update")
 async def update_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
+
     if not level:
         await send_start(callback.message)
         return
@@ -150,6 +158,7 @@ async def update_handler(callback: CallbackQuery):
 @dp.callback_query(F.data == "alt")
 async def alt_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
+
     if not level:
         await send_start(callback.message)
         return
@@ -160,7 +169,7 @@ async def alt_handler(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("map_"))
 async def map_handler(callback: CallbackQuery):
     spot = callback.data.replace("map_", "")
-    await callback.message.answer(f"Opening map for {spot} soon")
+    await callback.message.answer(f"Map for {spot} coming soon")
 
 
 @dp.callback_query(F.data == "map")
@@ -176,4 +185,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())io.run(main())
+    asyncio.run(main())
