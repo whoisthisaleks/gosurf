@@ -28,39 +28,16 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = "https://gosurf-bot.onrender.com/webhook"
 
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode="HTML")
+)
+
 dp = Dispatcher()
 app = Flask(__name__)
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
-
-
-# ----------------------
-# HELPERS
-# ----------------------
-def format_tide(tide):
-    if tide is None:
-        return "not available"
-
-    if tide < 0.8:
-        state = "low"
-    elif tide < 1.8:
-        state = "mid"
-    else:
-        state = "high"
-
-    return f"{state} ({round(tide,1)} m)"
-
-
-def format_wind(data):
-    wind_dir = data.get("wind_direction")
-    wind_speed = data.get("wind_speed")
-
-    if wind_dir == "unknown" or wind_speed == 0:
-        return "light/variable"
-
-    return f"{wind_dir} {round(wind_speed, 1)} m/s"
 
 
 # ----------------------
@@ -157,16 +134,35 @@ async def send_forecast(message: Message, level: str, is_first=False):
     reasons = "\n".join([f"• {r}" for r in decision["reasons"]])
     alts = "\n".join([f"• {s}" for s in decision["alternatives"]])
 
-    tide_text = format_tide(data.get("tide"))
-    wind_text = format_wind(data)
+    # ----------------------
+    # NOTICE (partial data)
+    # ----------------------
+    notice = ""
+    if data.get("is_partial"):
+        notice = "> Some data may be incomplete due to limited availability\n\n"
+
+    # ----------------------
+    # FORMAT CONDITIONS
+    # ----------------------
+    tide = data.get("tide")
+    tide_text = f"{tide} m" if tide else "not available"
+
+    wind_speed = data.get("wind_speed")
+    wind_dir = data.get("wind_direction")
+
+    if wind_speed is None:
+        wind_text = "unknown"
+    else:
+        wind_text = f"{wind_dir} {round(wind_speed,1)} m/s"
 
     text = (
+        notice +
         f"<b>Best spot:</b> {best}\n"
         f"<b>Score:</b> {decision['score']}/100\n\n"
         f"<b>Why:</b>\n{reasons}\n\n"
         f"<b>Conditions:</b>\n"
-        f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
-        f"Period: {round(data.get('period', 0), 1)} sec\n"
+        f"Wave: {data.get('wave_height', '-')} m\n"
+        f"Period: {data.get('period', '-')} sec\n"
         f"Swell: {data.get('swell_direction', '-')}\n"
         f"Wind: {wind_text}\n"
         f"Tide: {tide_text}\n\n"
@@ -190,7 +186,17 @@ async def send_forecast(message: Message, level: str, is_first=False):
 
 
 # ----------------------
-# ALTERNATIVES
+# UPDATE (FIXED)
+# ----------------------
+@dp.callback_query(F.data.startswith("update_"))
+async def update_forecast(callback: CallbackQuery):
+    level = callback.data.replace("update_", "")
+    await callback.answer()
+    await send_forecast(callback.message, level)
+
+
+# ----------------------
+# ALTERNATIVES (FIXED)
 # ----------------------
 @dp.callback_query(F.data.startswith("alts_"))
 async def show_alternatives(callback: CallbackQuery):
@@ -202,7 +208,7 @@ async def show_alternatives(callback: CallbackQuery):
 
     alts = decision["alternatives"]
 
-    if len(alts) < 2:
+    if not alts:
         await callback.message.answer("No alternative spots")
         return
 
@@ -212,14 +218,22 @@ async def show_alternatives(callback: CallbackQuery):
     for spot in alts[:2]:
         data = forecast.get(spot, {})
 
-        wind_text = format_wind(data)
-        tide_text = format_tide(data.get("tide"))
+        tide = data.get("tide")
+        tide_text = f"{tide} m" if tide else "not available"
+
+        wind_speed = data.get("wind_speed")
+        wind_dir = data.get("wind_direction")
+
+        if wind_speed is None:
+            wind_text = "unknown"
+        else:
+            wind_text = f"{wind_dir} {round(wind_speed,1)} m/s"
 
         text = (
             f"<b>Spot:</b> {spot}\n\n"
             f"<b>Conditions:</b>\n"
-            f"Wave: {round(data.get('wave_height', 0), 1)} m\n"
-            f"Period: {round(data.get('period', 0), 1)} sec\n"
+            f"Wave: {data.get('wave_height', '-')} m\n"
+            f"Period: {data.get('period', '-')} sec\n"
             f"Swell: {data.get('swell_direction', '-')}\n"
             f"Wind: {wind_text}\n"
             f"Tide: {tide_text}"
