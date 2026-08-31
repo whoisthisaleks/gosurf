@@ -1,16 +1,18 @@
 import asyncio
 import logging
 
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram import Bot, Dispatcher, Router, F
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN
-from weather import get_weather
-from decision_engine import get_best_spot, get_alternatives
+from weather import get_surf_data
+from decision_engine import pick_best_spots
+from spots import SPOTS
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -20,6 +22,9 @@ bot = Bot(
 )
 
 dp = Dispatcher()
+router = Router()
+dp.include_router(router)
+
 user_level = {}
 
 
@@ -34,153 +39,120 @@ def level_keyboard():
     return kb.as_markup()
 
 
-def main_keyboard():
+def action_keyboard():
     kb = InlineKeyboardBuilder()
-    kb.button(text="Open map", callback_data="map")
-    kb.button(text="Update", callback_data="update")
-    kb.button(text="Alternative spots", callback_data="alt")
+    kb.button(text="🔄 Update", callback_data="update")
+    kb.button(text="🔁 Restart", callback_data="restart")
     kb.adjust(1)
     return kb.as_markup()
 
 
-def map_keyboard(spot_name: str):
-    kb = InlineKeyboardBuilder()
-    kb.button(text="Open map", callback_data=f"map_{spot_name}")
-    kb.adjust(1)
-    return kb.as_markup()
+# ===== HELPERS =====
+
+async def fetch_all_spots():
+    results = []
+
+    for spot in SPOTS:
+        try:
+            data = await get_surf_data(spot)
+        except Exception as e:
+            print(f"[ERROR] spot fetch {spot['name']}: {e}")
+            data = {
+                "wave_height": None,
+                "period": None,
+                "wind_speed": None
+            }
+
+        results.append({
+            "name": spot["name"],
+            "data": data
+        })
+
+    return results
 
 
-# ===== TEXT =====
+def format_spot(title: str, spot: dict) -> str:
+    if not spot:
+        return f"<b>{title}:</b>\nNo data available\n"
 
-def start_text():
-    return """<b>Hey surfer!</b>
+    data = spot["data"]
 
-Let's pick the best surf spot right now.
-What's your level?
-"""
+    if not data or all(v is None for v in data.values()):
+        return f"<b>{title}:</b>\nNo data available\n"
 
-
-def result_text(best, alternatives):
-    alt_text = "\n".join([s["name"] for s in alternatives])
-
-    return f"""<b>Best spot:</b> <b>{best['name']}</b>
-
-<b>Why:</b> Good wave size & good for your level
-
-<b>Conditions:</b>
-Wave: {best['conditions']['wave']}
-Period: {best['conditions']['period']}
-Wind: {best['conditions']['wind']}
-
-<b>Alternative spots:</b>
-{alt_text}
-"""
-
-
-def alt_text_block(spot):
-    return f"""<b>{spot['name']}</b>
-
-<b>Conditions:</b>
-Wave: {spot['conditions']['wave']}
-Period: {spot['conditions']['period']}
-Wind: {spot['conditions']['wind']}
+    return f"""<b>{title}:</b>
+🏄 {spot['name']}
+Wave: {data.get('wave_height', '—')} m
+Period: {data.get('period', '—')} s
+Wind: {data.get('wind_speed', '—')} m/s
 """
 
 
 # ===== CORE =====
 
-async def send_start(message: Message):
-    await message.answer_photo(
-        photo=FSInputFile("assets/start.png"),
-        caption=start_text(),
-        reply_markup=level_keyboard()
-    )
+async def generate_and_send(message: Message, level: str):
+    try:
+        await message.answer("Loading...")
 
+        spots_with_data = await fetch_all_spots()
 
-async def send_best(message: Message, level: str):
-    weather = await get_weather()
+        result = pick_best_spots(spots_with_data, level)
 
-    best = get_best_spot(weather, level)
-    alternatives = get_alternatives(weather, level)
+        best_text = format_spot("Best spot", result.get("best"))
+        alt_text = format_spot("Alternative spot", result.get("alternative"))
 
-    await message.answer_photo(
-        photo=FSInputFile("assets/best.png"),
-        caption=result_text(best, alternatives),
-        reply_markup=main_keyboard()
-    )
+        text = f"{best_text}\n{alt_text}"
 
+        await message.answer(text, reply_markup=action_keyboard())
 
-async def send_alternatives(message: Message, level: str):
-    weather = await get_weather()
-    alternatives = get_alternatives(weather, level)
-
-    if not alternatives:
-        await message.answer("No alternative spots")
-        return
-
-    for spot in alternatives:
-        try:
-            await message.answer_photo(
-                photo=FSInputFile("assets/alt.png"),
-                caption=alt_text_block(spot),
-                reply_markup=map_keyboard(spot["name"])
-            )
-        except Exception as e:
-            print("ALT ERROR:", e)
+    except Exception as e:
+        print("[FATAL ERROR]", e)
+        await message.answer("No data available")
 
 
 # ===== HANDLERS =====
 
-@dp.message(CommandStart())
-async def start(message: Message):
-    await send_start(message)
+@router.message(CommandStart())
+async def start_handler(message: Message):
+    await message.answer(
+        "GoSurf will help you find the best surf spot today 🌊",
+        reply_markup=level_keyboard()
+    )
 
 
-@dp.callback_query(F.data.startswith("level_"))
-async def set_level(callback: CallbackQuery):
+@router.callback_query(F.data.startswith("level_"))
+async def level_handler(callback: CallbackQuery):
     level = callback.data.split("_")[1]
     user_level[callback.from_user.id] = level
 
-    await send_best(callback.message, level)
+    await generate_and_send(callback.message, level)
 
 
-@dp.callback_query(F.data == "update")
+@router.callback_query(F.data == "update")
 async def update_handler(callback: CallbackQuery):
     level = user_level.get(callback.from_user.id)
 
     if not level:
-        await send_start(callback.message)
+        await callback.message.answer("Please select level first")
         return
 
-    await send_best(callback.message, level)
+    await generate_and_send(callback.message, level)
 
 
-@dp.callback_query(F.data == "alt")
-async def alt_handler(callback: CallbackQuery):
-    level = user_level.get(callback.from_user.id)
+@router.callback_query(F.data == "restart")
+async def restart_handler(callback: CallbackQuery):
+    user_level.pop(callback.from_user.id, None)
 
-    if not level:
-        await send_start(callback.message)
-        return
-
-    await send_alternatives(callback.message, level)
-
-
-@dp.callback_query(F.data.startswith("map_"))
-async def map_handler(callback: CallbackQuery):
-    spot = callback.data.replace("map_", "")
-    await callback.message.answer(f"Map for {spot} coming soon")
-
-
-@dp.callback_query(F.data == "map")
-async def map_main_handler(callback: CallbackQuery):
-    await callback.message.answer("Map coming soon")
+    await callback.message.answer(
+        "Select your level:",
+        reply_markup=level_keyboard()
+    )
 
 
 # ===== MAIN =====
 
 async def main():
-    print("BOT STARTED")
+    print("🚀 BOT STARTED")
     await dp.start_polling(bot)
 
 

@@ -1,89 +1,177 @@
 import aiohttp
 import asyncio
 import time
-import logging
+
 from config import STORMGLASS_API_KEY
 
-logger = logging.getLogger(__name__)
-
 # ===== CONFIG =====
-CACHE_TTL = 900  # 15 минут
-LAT = -8.65   # Bali
-LNG = 115.13
+
+STORMGLASS_URL = "https://api.stormglass.io/v2/weather/point"
+PARAMS = "waveHeight,wavePeriod,windSpeed,windDirection"
+
+CACHE_TTL = 600  # 10 minutes
+_cache = {}
+
 
 # ===== CACHE =====
-_cache = {
-    "data": None,
-    "timestamp": 0
-}
+
+def _cache_key(lat: float, lng: float) -> str:
+    return f"{round(lat, 3)}:{round(lng, 3)}"
+
+
+def _get_cached(key: str):
+    data = _cache.get(key)
+    if not data:
+        return None
+
+    if time.time() - data["ts"] > CACHE_TTL:
+        return None
+
+    return data["value"]
+
+
+def _set_cache(key: str, value: dict):
+    _cache[key] = {
+        "ts": time.time(),
+        "value": value
+    }
 
 
 # ===== HELPERS =====
 
-def is_cache_valid():
-    return time.time() - _cache["timestamp"] < CACHE_TTL
+def _extract_hour(data: dict) -> dict | None:
+    try:
+        hours = data.get("hours", [])
+        if not hours:
+            return None
+        return hours[0]
+    except Exception:
+        return None
 
 
-def save_cache(data):
-    _cache["data"] = data
-    _cache["timestamp"] = time.time()
+def _safe_get(metric: dict | None):
+    if not metric:
+        return None
+
+    # приоритет Stormglass (sg), fallback на noaa если есть
+    return metric.get("sg") or metric.get("noaa")
 
 
-# ===== API =====
+def _round(val):
+    if val is None:
+        return None
+    return round(val, 2)
 
-async def fetch_weather():
-    url = "https://api.stormglass.io/v2/weather/point"
 
-    params = {
-        "lat": LAT,
-        "lng": LNG,
-        "params": "waveHeight,wavePeriod,windSpeed,windDirection",
-        "hours": 12
+# ===== MAIN =====
+
+async def get_surf_data(spot: dict) -> dict:
+    """
+    spot = {
+        "name": "Uluwatu",
+        "lat": -8.829,
+        "lng": 115.084
     }
+    """
+
+    lat = spot["lat"]
+    lng = spot["lng"]
+
+    key = _cache_key(lat, lng)
+
+    # ===== CACHE HIT =====
+    cached = _get_cached(key)
+    if cached:
+        print(f"[CACHE HIT] {spot['name']}")
+        return cached
+
+    print(f"[API CALL] {spot['name']}")
 
     headers = {
         "Authorization": STORMGLASS_API_KEY
     }
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, headers=headers) as resp:
+    params = {
+        "lat": lat,
+        "lng": lng,
+        "params": PARAMS
+    }
 
+    try:
+        timeout = aiohttp.ClientTimeout(total=10)
+
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(STORMGLASS_URL, headers=headers, params=params) as resp:
+
+                # ===== QUOTA / HTTP ERRORS =====
                 if resp.status != 200:
                     text = await resp.text()
-                    logger.error(f"Stormglass error {resp.status}: {text}")
-                    return None
+                    print(f"[ERROR] Stormglass {resp.status}: {text}")
+
+                    # fallback
+                    result = {
+                        "wave_height": None,
+                        "period": None,
+                        "wind_speed": None,
+                        "wind_direction": None
+                    }
+
+                    _set_cache(key, result)
+                    return result
 
                 data = await resp.json()
-                return data
+
+    except asyncio.TimeoutError:
+        print("[ERROR] Stormglass timeout")
+
+        result = {
+            "wave_height": None,
+            "period": None,
+            "wind_speed": None,
+            "wind_direction": None
+        }
+
+        _set_cache(key, result)
+        return result
 
     except Exception as e:
-        logger.exception("Stormglass request failed")
-        return None
+        print(f"[ERROR] Stormglass exception: {e}")
 
+        result = {
+            "wave_height": None,
+            "period": None,
+            "wind_speed": None,
+            "wind_direction": None
+        }
 
-# ===== PUBLIC =====
+        _set_cache(key, result)
+        return result
 
-async def get_weather():
-    # 1. если кеш жив — возвращаем
-    if _cache["data"] and is_cache_valid():
-        logger.info("Weather: cache hit")
-        return _cache["data"]
+    # ===== PARSE =====
 
-    logger.info("Weather: fetching new data")
+    hour = _extract_hour(data)
 
-    # 2. пробуем получить новые данные
-    fresh = await fetch_weather()
+    if not hour:
+        print("[ERROR] No hours data")
 
-    if fresh:
-        save_cache(fresh)
-        return fresh
+        result = {
+            "wave_height": None,
+            "period": None,
+            "wind_speed": None,
+            "wind_direction": None
+        }
 
-    # 3. fallback — отдаем старые данные
-    if _cache["data"]:
-        logger.warning("Using stale cache (Stormglass failed)")
-        return _cache["data"]
+        _set_cache(key, result)
+        return result
 
-    # 4. полный фейл
-    logger.error("No weather data available")
-    return None
+    result = {
+        "wave_height": _round(_safe_get(hour.get("waveHeight"))),
+        "period": _round(_safe_get(hour.get("wavePeriod"))),
+        "wind_speed": _round(_safe_get(hour.get("windSpeed"))),
+        "wind_direction": _round(_safe_get(hour.get("windDirection")))
+    }
+
+    # ===== CACHE SAVE =====
+    _set_cache(key, result)
+
+    return result

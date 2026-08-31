@@ -1,148 +1,114 @@
-# ===== MULTI-SPOT ENGINE (SMART MVP) =====
+# ===== DECISION ENGINE (SURF LOGIC) =====
 
-def extract_base(weather):
-    try:
-        h = weather["hours"][0]
-
-        return {
-            "wave": h.get("waveHeight", {}).get("sg"),
-            "period": h.get("wavePeriod", {}).get("sg"),
-            "wind": h.get("windSpeed", {}).get("sg"),
-        }
-    except:
-        return {
-            "wave": None,
-            "period": None,
-            "wind": None,
-        }
-
-
-# ===== SPOT PROFILES =====
-# оффсеты имитируют реальные различия
-
-SPOTS = [
-    {
-        "name": "Kuta",
-        "level": ["beginner", "intermediate"],
-        "wave_offset": -0.5,
-        "wind_multiplier": 0.9,
-    },
-    {
-        "name": "Canggu",
-        "level": ["intermediate", "advanced"],
-        "wave_offset": 0,
-        "wind_multiplier": 1.0,
-    },
-    {
-        "name": "Uluwatu",
-        "level": ["advanced"],
-        "wave_offset": +0.7,
-        "wind_multiplier": 1.1,
-    },
-    {
-        "name": "Medewi",
-        "level": ["intermediate", "advanced"],
-        "wave_offset": -0.2,
-        "wind_multiplier": 0.8,
-    },
-]
-
-
-# ===== APPLY PROFILE =====
-
-def apply_spot(base, spot):
-    return {
-        "wave": round((base["wave"] or 0) + spot["wave_offset"], 2),
-        "period": base["period"],
-        "wind": round((base["wind"] or 0) * spot["wind_multiplier"], 2),
-    }
+from typing import List, Dict
 
 
 # ===== SCORING =====
 
-def score(conditions, level):
-    wave = conditions["wave"] or 0
-    wind = conditions["wind"] or 0
-    period = conditions["period"] or 0
+def score_spot(data: dict, level: str) -> float:
+    """
+    data = {
+        "wave_height": float,
+        "period": float,
+        "wind_speed": float
+    }
+    """
 
-    # базовый скоринг
-    score = 0
+    wave = data.get("wave_height") or 0
+    period = data.get("period") or 0
+    wind = data.get("wind_speed") or 0
 
-    # wave
+    score = 0.0
+
+    # ===== WAVE HEIGHT =====
     if level == "beginner":
-        score += max(0, 1 - abs(wave - 1.0))
+        # идеал 0.8–1.5
+        if 0.8 <= wave <= 1.5:
+            score += 40
+        else:
+            score += max(0, 40 - abs(wave - 1.1) * 25)
+
     elif level == "intermediate":
-        score += max(0, 1 - abs(wave - 1.5))
+        # идеал 1–2.5
+        if 1.0 <= wave <= 2.5:
+            score += 40
+        else:
+            score += max(0, 40 - abs(wave - 1.7) * 20)
+
+    else:  # advanced
+        # любят больше волны
+        if wave >= 1.5:
+            score += min(40, wave * 15)
+        else:
+            score += wave * 10
+
+    # ===== PERIOD =====
+    if period >= 12:
+        score += 30
+    elif period >= 10:
+        score += 20
+    elif period >= 8:
+        score += 10
     else:
-        score += min(1, wave / 3)
+        score += 0
 
-    # wind (меньше лучше)
-    score += max(0, 1 - wind / 15)
+    # ===== WIND =====
+    # чем меньше — тем лучше
+    if level == "beginner":
+        if wind <= 5:
+            score += 30
+        else:
+            score += max(0, 30 - (wind - 5) * 5)
 
-    # period
-    score += min(1, period / 12)
+    elif level == "intermediate":
+        if wind <= 8:
+            score += 30
+        else:
+            score += max(0, 30 - (wind - 8) * 4)
 
-    return round(score * 100 / 3, 1)
+    else:  # advanced
+        if wind <= 12:
+            score += 30
+        else:
+            score += max(0, 30 - (wind - 12) * 3)
 
-
-# ===== FORMAT =====
-
-def format_conditions(c):
-    return {
-        "wave": f"{c['wave']} m",
-        "period": f"{c['period']} s",
-        "wind": f"{c['wind']} m/s",
-    }
-
-
-# ===== PUBLIC =====
-
-def get_best_spot(weather, level):
-    base = extract_base(weather)
-
-    scored = []
-
-    for spot in SPOTS:
-        if level not in spot["level"]:
-            continue
-
-        c = apply_spot(base, spot)
-        s = score(c, level)
-
-        scored.append((spot, c, s))
-
-    scored.sort(key=lambda x: x[2], reverse=True)
-
-    best = scored[0]
-
-    return {
-        "name": best[0]["name"],
-        "conditions": format_conditions(best[1]),
-    }
+    return round(min(score, 100), 1)
 
 
-def get_alternatives(weather, level):
-    base = extract_base(weather)
+# ===== PICK BEST =====
+
+def pick_best_spots(spots_with_data: List[Dict], level: str) -> Dict:
+    """
+    spots_with_data = [
+        {
+            "name": "Uluwatu",
+            "data": {...}
+        }
+    ]
+    """
 
     scored = []
 
-    for spot in SPOTS:
-        if level not in spot["level"]:
-            continue
+    for spot in spots_with_data:
+        s = score_spot(spot["data"], level)
 
-        c = apply_spot(base, spot)
-        s = score(c, level)
-
-        scored.append((spot, c, s))
-
-    scored.sort(key=lambda x: x[2], reverse=True)
-
-    result = []
-
-    for spot, cond, _ in scored[1:3]:
-        result.append({
+        scored.append({
             "name": spot["name"],
-            "conditions": format_conditions(cond)
+            "data": spot["data"],
+            "score": s
         })
 
-    return result
+    # сортировка по убыванию
+    scored.sort(key=lambda x: x["score"], reverse=True)
+
+    # гарантируем минимум 2
+    if len(scored) == 0:
+        return {"best": None, "alternative": None}
+
+    if len(scored) == 1:
+        return {"best": scored[0], "alternative": scored[0]}
+
+    return {
+        "best": scored[0],
+        "alternative": scored[1]
+    }
