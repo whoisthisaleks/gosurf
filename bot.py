@@ -7,6 +7,7 @@ from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 
 from decision_engine import get_best_spot, get_alternative_spots
 
@@ -14,16 +15,16 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 logging.basicConfig(level=logging.INFO)
 
-from aiogram.client.default import DefaultBotProperties
-
 bot = Bot(
     token=BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
+
 dp = Dispatcher()
 router = Router()
 
-user_level = {}
+user_data = {}
+
 
 # =========================
 # KEYBOARDS
@@ -38,11 +39,11 @@ def level_kb():
     return kb.as_markup()
 
 
-def main_kb():
+def main_kb(lat, lng):
     kb = InlineKeyboardBuilder()
-    kb.button(text="📍 Open map", callback_data="map")
-    kb.button(text="🔄 Update", callback_data="update")
-    kb.button(text="📊 Alternative spots", callback_data="alts")
+    kb.button(text="Open map", url=f"https://www.google.com/maps?q={lat},{lng}")
+    kb.button(text="Update", callback_data="update")
+    kb.button(text="Alternative spots", callback_data="alts")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -55,14 +56,6 @@ def bottom_menu():
     kb.button(text="GoSurf Pro")
     kb.adjust(2)
     return kb.as_markup(resize_keyboard=True)
-
-
-# =========================
-# HELPERS
-# =========================
-
-def map_link(lat, lng):
-    return f"https://www.google.com/maps?q={lat},{lng}"
 
 
 # =========================
@@ -85,6 +78,12 @@ async def start(message: Message):
         reply_markup=level_kb()
     )
 
+    # показываем нижнее меню
+    await message.answer(
+        "Menu:",
+        reply_markup=bottom_menu()
+    )
+
 
 # =========================
 # LEVEL
@@ -93,7 +92,7 @@ async def start(message: Message):
 @router.callback_query(F.data.startswith("level_"))
 async def level_handler(callback: CallbackQuery):
     level = callback.data.split("_")[1]
-    user_level[callback.from_user.id] = level
+    user_data[callback.from_user.id] = {"level": level}
 
     await callback.answer()
     await send_best(callback.message, level)
@@ -106,10 +105,15 @@ async def level_handler(callback: CallbackQuery):
 async def send_best(message: Message, level: str):
     result = await get_best_spot(level)
 
+    # сохраняем последний результат
+    user_data[message.chat.id]["last"] = result
+
+    reasons_text = "\n".join([f"- {r}" for r in result["reasons"]])
+
     text = (
         f"<b>Best spot: {result['spot']}</b>\n\n"
         f"Score: {result['score']}/100\n\n"
-        f"{format_reasons(result['reasons'])}\n\n"
+        f"{reasons_text}\n\n"
         f"<b>Conditions:</b>\n\n"
         f"Wave: {result['wave']} m\n"
         f"Period: {result['period']} sec\n"
@@ -123,48 +127,40 @@ async def send_best(message: Message, level: str):
 
     photo = FSInputFile("assets/best.png")
 
-    msg = await message.answer_photo(
+    await message.answer_photo(
         photo=photo,
         caption=text,
-        reply_markup=main_kb()
+        reply_markup=main_kb(result["lat"], result["lng"])
     )
-
-    # сохраняем последний спот (для map)
-    user_level[f"{message.chat.id}_last"] = result
-
-
-def format_reasons(reasons):
-    return "\n".join([f"- {r}" for r in reasons])
 
 
 # =========================
-# BUTTONS
+# UPDATE
 # =========================
 
 @router.callback_query(F.data == "update")
 async def update(callback: CallbackQuery):
-    level = user_level.get(callback.from_user.id)
+    level = user_data.get(callback.from_user.id, {}).get("level")
+
+    if not level:
+        await callback.message.answer("Use /start first")
+        return
+
     await callback.answer()
     await send_best(callback.message, level)
 
 
-@router.callback_query(F.data == "map")
-async def open_map(callback: CallbackQuery):
-    data = user_level.get(f"{callback.message.chat.id}_last")
-
-    if not data:
-        await callback.answer("No data yet")
-        return
-
-    link = map_link(data["lat"], data["lng"])
-
-    await callback.answer("Opening map...", show_alert=False)
-    await callback.message.answer(link)
-
+# =========================
+# ALTERNATIVES (FIXED)
+# =========================
 
 @router.callback_query(F.data == "alts")
 async def alternatives(callback: CallbackQuery):
-    level = user_level.get(callback.from_user.id)
+    level = user_data.get(callback.from_user.id, {}).get("level")
+
+    if not level:
+        await callback.message.answer("Use /start first")
+        return
 
     spots = await get_alternative_spots(level)
 
@@ -180,14 +176,16 @@ async def alternatives(callback: CallbackQuery):
             f"Tide: not available"
         )
 
-        photo = FSInputFile("assets/alt.png")
+        kb = InlineKeyboardBuilder()
+        kb.button(
+            text="Open map",
+            url=f"https://www.google.com/maps?q={s['lat']},{s['lng']}"
+        )
 
         await callback.message.answer_photo(
-            photo=photo,
+            photo=FSInputFile("assets/alt.png"),
             caption=text,
-            reply_markup=InlineKeyboardBuilder()
-            .button(text="📍 Open map", url=map_link(s["lat"], s["lng"]))
-            .as_markup()
+            reply_markup=kb.as_markup()
         )
 
     await callback.answer()
@@ -210,14 +208,14 @@ async def change_level(message: Message):
 @router.message(F.text == "About")
 async def about(message: Message):
     await message.answer(
-        "GoSurf uses ocean data to find best surf spots 🌊"
+        "GoSurf uses ocean data to find best surf spots"
     )
 
 
 @router.message(F.text == "GoSurf Pro")
 async def pro(message: Message):
     await message.answer(
-        "Pro version coming soon 🚀"
+        "Pro version coming soon"
     )
 
 
