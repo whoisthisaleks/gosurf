@@ -1,114 +1,94 @@
-# ===== DECISION ENGINE (SURF LOGIC) =====
+from spots import SPOTS
+from weather import fetch_weather
 
-from typing import List, Dict
 
+def score_spot(data, level):
+    score = 0
 
-# ===== SCORING =====
+    wave = data["wave"]
+    period = data["period"]
+    wind = data["wind"]
 
-def score_spot(data: dict, level: str) -> float:
-    """
-    data = {
-        "wave_height": float,
-        "period": float,
-        "wind_speed": float
-    }
-    """
-
-    wave = data.get("wave_height") or 0
-    period = data.get("period") or 0
-    wind = data.get("wind_speed") or 0
-
-    score = 0.0
-
-    # ===== WAVE HEIGHT =====
+    # --- wave scoring
     if level == "beginner":
-        # идеал 0.8–1.5
         if 0.8 <= wave <= 1.5:
-            score += 40
-        else:
-            score += max(0, 40 - abs(wave - 1.1) * 25)
-
+            score += 3
     elif level == "intermediate":
-        # идеал 1–2.5
-        if 1.0 <= wave <= 2.5:
-            score += 40
-        else:
-            score += max(0, 40 - abs(wave - 1.7) * 20)
-
-    else:  # advanced
-        # любят больше волны
-        if wave >= 1.5:
-            score += min(40, wave * 15)
-        else:
-            score += wave * 10
-
-    # ===== PERIOD =====
-    if period >= 12:
-        score += 30
-    elif period >= 10:
-        score += 20
-    elif period >= 8:
-        score += 10
+        if 1.2 <= wave <= 2.0:
+            score += 3
     else:
-        score += 0
+        if wave >= 1.5:
+            score += 3
 
-    # ===== WIND =====
-    # чем меньше — тем лучше
-    if level == "beginner":
-        if wind <= 5:
-            score += 30
-        else:
-            score += max(0, 30 - (wind - 5) * 5)
+    # --- period
+    if period >= 10:
+        score += 2
 
-    elif level == "intermediate":
-        if wind <= 8:
-            score += 30
-        else:
-            score += max(0, 30 - (wind - 8) * 4)
+    # --- wind (lower better)
+    if wind < 6:
+        score += 2
 
-    else:  # advanced
-        if wind <= 12:
-            score += 30
-        else:
-            score += max(0, 30 - (wind - 12) * 3)
-
-    return round(min(score, 100), 1)
+    return score
 
 
-# ===== PICK BEST =====
+async def get_best_spot(level):
+    results = []
 
-def pick_best_spots(spots_with_data: List[Dict], level: str) -> Dict:
-    """
-    spots_with_data = [
-        {
-            "name": "Uluwatu",
-            "data": {...}
-        }
-    ]
-    """
+    for spot in SPOTS:
+        data = await fetch_weather(spot["lat"], spot["lng"])
+        s = score_spot(data, level)
 
-    scored = []
-
-    for spot in spots_with_data:
-        s = score_spot(spot["data"], level)
-
-        scored.append({
-            "name": spot["name"],
-            "data": spot["data"],
-            "score": s
+        results.append({
+            "spot": spot["name"],
+            "score": s,
+            "data": data
         })
 
-    # сортировка по убыванию
-    scored.sort(key=lambda x: x["score"], reverse=True)
+    best = sorted(results, key=lambda x: x["score"], reverse=True)[0]
 
-    # гарантируем минимум 2
-    if len(scored) == 0:
-        return {"best": None, "alternative": None}
+    return format_result(best)
 
-    if len(scored) == 1:
-        return {"best": scored[0], "alternative": scored[0]}
+
+async def get_alternative_spots(level):
+    results = []
+
+    for spot in SPOTS:
+        data = await fetch_weather(spot["lat"], spot["lng"])
+        s = score_spot(data, level)
+
+        results.append({
+            "spot": spot["name"],
+            "score": s,
+            "data": data
+        })
+
+    sorted_spots = sorted(results, key=lambda x: x["score"], reverse=True)[1:3]
+
+    return [format_result(s) for s in sorted_spots]
+
+
+def format_result(item):
+    d = item["data"]
 
     return {
-        "best": scored[0],
-        "alternative": scored[1]
+        "spot": item["spot"],
+        "wave": round(d["wave"], 1),
+        "period": int(d["period"]),
+        "wind": round(d["wind"], 1),
+        "why": build_why(d)
     }
+
+
+def build_why(d):
+    reasons = []
+
+    if d["wave"] > 1:
+        reasons.append("good wave height")
+
+    if d["period"] >= 10:
+        reasons.append("long swell period")
+
+    if d["wind"] < 6:
+        reasons.append("light wind")
+
+    return ", ".join(reasons)
