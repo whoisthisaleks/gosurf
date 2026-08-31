@@ -78,35 +78,37 @@ async def start(message: Message):
         reply_markup=level_kb()
     )
 
-    # показываем нижнее меню
     await message.answer(
-        "Menu:",
+        " ",
         reply_markup=bottom_menu()
     )
 
 
 # =========================
-# LEVEL
+# LEVEL SELECT
 # =========================
 
 @router.callback_query(F.data.startswith("level_"))
 async def level_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
     level = callback.data.split("_")[1]
-    user_data[callback.from_user.id] = {"level": level}
+
+    user_data[user_id] = {"level": level}
 
     await callback.answer()
-    await send_best(callback.message, level)
+    await send_best(callback.message, user_id)
 
 
 # =========================
-# BEST SPOT
+# SEND BEST SPOT
 # =========================
 
-async def send_best(message: Message, level: str):
+async def send_best(message: Message, user_id: int):
+    level = user_data[user_id]["level"]
+
     result = await get_best_spot(level)
 
-    # сохраняем последний результат
-    user_data[message.chat.id]["last"] = result
+    user_data[user_id]["last"] = result
 
     reasons_text = "\n".join([f"- {r}" for r in result["reasons"]])
 
@@ -140,27 +142,29 @@ async def send_best(message: Message, level: str):
 
 @router.callback_query(F.data == "update")
 async def update(callback: CallbackQuery):
-    level = user_data.get(callback.from_user.id, {}).get("level")
+    user_id = callback.from_user.id
 
-    if not level:
+    if user_id not in user_data:
         await callback.message.answer("Use /start first")
         return
 
     await callback.answer()
-    await send_best(callback.message, level)
+    await send_best(callback.message, user_id)
 
 
 # =========================
-# ALTERNATIVES (FIXED)
+# ALTERNATIVE SPOTS
 # =========================
 
 @router.callback_query(F.data == "alts")
 async def alternatives(callback: CallbackQuery):
-    level = user_data.get(callback.from_user.id, {}).get("level")
+    user_id = callback.from_user.id
 
-    if not level:
+    if user_id not in user_data:
         await callback.message.answer("Use /start first")
         return
+
+    level = user_data[user_id]["level"]
 
     spots = await get_alternative_spots(level)
 
@@ -207,16 +211,12 @@ async def change_level(message: Message):
 
 @router.message(F.text == "About")
 async def about(message: Message):
-    await message.answer(
-        "GoSurf uses ocean data to find best surf spots"
-    )
+    await message.answer("GoSurf uses ocean data to find best surf spots")
 
 
 @router.message(F.text == "GoSurf Pro")
 async def pro(message: Message):
-    await message.answer(
-        "Pro version coming soon"
-    )
+    await message.answer("Pro version coming soon")
 
 
 # =========================
@@ -225,7 +225,10 @@ async def pro(message: Message):
 
 async def main():
     dp.include_router(router)
+
+    # КРИТИЧЕСКИЙ ФИКС (убирает конфликт polling/webhook)
     await bot.delete_webhook(drop_pending_updates=True)
+
     await dp.start_polling(bot)
 
 
