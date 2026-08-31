@@ -6,7 +6,7 @@ from cache import get_cache, set_cache
 API_KEY = os.getenv("STORMGLASS_API_KEY")
 
 BASE_URL = "https://api.stormglass.io/v2/weather/point"
-PARAMS = "waveHeight,wavePeriod,waveDirection,windSpeed"
+PARAMS = "waveHeight,wavePeriod,waveDirection,windSpeed,windDirection"
 
 
 async def fetch_weather(lat, lng):
@@ -17,7 +17,6 @@ async def fetch_weather(lat, lng):
         return cached
 
     if not API_KEY:
-        logging.warning("No Stormglass API key, using fallback")
         return fallback()
 
     try:
@@ -34,7 +33,6 @@ async def fetch_weather(lat, lng):
             ) as resp:
 
                 if resp.status != 200:
-                    logging.warning(f"Stormglass error: {resp.status}")
                     return fallback()
 
                 data = await resp.json()
@@ -49,6 +47,7 @@ async def fetch_weather(lat, lng):
                     "period": h.get("wavePeriod", {}).get("sg", 0),
                     "direction": h.get("waveDirection", {}).get("sg", 0),
                     "wind": h.get("windSpeed", {}).get("sg", 0),
+                    "wind_dir": h.get("windDirection", {}).get("sg", 0),
                 }
 
                 set_cache(cache_key, result)
@@ -64,5 +63,6 @@ def fallback():
         "wave": 1.2,
         "period": 10,
         "direction": 180,
-        "wind": 5
+        "wind": 5,
+        "wind_dir": 90
     }
