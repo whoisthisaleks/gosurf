@@ -1,38 +1,73 @@
-def score_spot(spot, level):
-    score = 0
+def angle_diff(a, b):
+    diff = abs(a - b) % 360
+    return min(diff, 360 - diff)
 
-    h = spot["wave_height"]
-    p = spot["period"]
-    w = spot["wind_speed"]
 
+def wind_score(wind_dir, spot_orientation):
+    diff = angle_diff(wind_dir, spot_orientation)
+
+    # offshore (ветер в лицо волне)
+    if diff > 150:
+        return 3
+
+    # cross
+    if 60 < diff <= 150:
+        return 1
+
+    # onshore
+    return -3
+
+
+def swell_score(swell_dir, spot_orientation):
+    diff = angle_diff(swell_dir, spot_orientation)
+
+    if diff < 40:
+        return 3
+    elif diff < 80:
+        return 2
+    else:
+        return 0
+
+
+def size_score(height, level):
     if level == "beginner":
-        if 0.8 <= h <= 1.5:
-            score += 3
-        if p >= 8:
-            score += 2
-        if w < 6:
-            score += 2
+        if 0.8 <= height <= 1.5:
+            return 3
+        return -2
 
-    elif level == "intermediate":
-        if 1.2 <= h <= 2.5:
-            score += 3
-        if p >= 10:
-            score += 2
-        if w < 8:
-            score += 2
+    if level == "intermediate":
+        if 1.2 <= height <= 2.5:
+            return 3
+        return 0
 
-    else:  # advanced
-        if h >= 1.5:
-            score += 3
-        if p >= 12:
-            score += 3
-        if w < 10:
-            score += 1
+    if level == "advanced":
+        if height >= 1.5:
+            return 3
+        return 1
 
-    return score
+
+def period_score(period):
+    if period >= 12:
+        return 3
+    if period >= 9:
+        return 2
+    return 0
 
 
 def pick_best_spot(spots, level):
-    scored = [(spot, score_spot(spot, level)) for spot in spots]
-    scored.sort(key=lambda x: x[1], reverse=True)
-    return scored[0][0] if scored else None
+    best = None
+    best_score = -999
+
+    for s in spots:
+        score = 0
+
+        score += size_score(s["wave_height"], level)
+        score += period_score(s["period"])
+        score += wind_score(s["wind_dir"], s["orientation"])
+        score += swell_score(s["swell_dir"], s["orientation"])
+
+        if score > best_score:
+            best_score = score
+            best = s
+
+    return best

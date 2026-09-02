@@ -46,11 +46,13 @@ async def handle_level(callback: types.CallbackQuery):
         return
 
     text = (
-        f"🏄 Best spot: {best['name']}\n"
-        f"Wave: {best['wave_height']}m\n"
-        f"Period: {best['period']}s\n"
-        f"Wind: {best['wind_speed']} m/s"
-    )
+    f"Best spot: {best['name']}\n\n"
+    f"Wave: {best['wave_height']}m\n"
+    f"Period: {best['period']}s\n"
+    f"Wind: {best['wind_speed']} m/s\n"
+    f"Wind dir: {int(best['wind_dir'])}°\n"
+    f"Swell dir: {int(best['swell_dir'])}°"
+)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Open map", url=MAPS[best["name"]])]
