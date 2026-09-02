@@ -44,7 +44,7 @@ MAPS = {
     "Medewi": "https://maps.google.com/?q=-8.42,114.78",
 }
 
-def map_button(spot_name):
+def map_button(spot_name: str):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Open map", url=MAPS[spot_name])]
@@ -71,7 +71,7 @@ async def start(message: Message):
     )
 
 # =========================
-# LEVEL HANDLER (ФИКС!)
+# LEVEL HANDLER
 # =========================
 @router.message(F.text.in_(["Beginner", "Intermediate", "Advanced"]))
 async def handle_level(message: Message):
@@ -82,57 +82,81 @@ async def handle_level(message: Message):
     spots_data = []
 
     for spot in SPOTS:
-        data = await get_surf_data(spot)
+        try:
+            data = await get_surf_data(spot)
 
-        if not data:
-            continue
+            if not data:
+                continue
 
-        spots_data.append({
-            "name": spot["name"],
-            "data": data
-        })
+            spots_data.append({
+                "spot": spot,   # ✅ FIX
+                "data": data
+            })
+
+        except Exception as e:
+            print(f"Error loading spot {spot['name']}: {e}")
 
     if len(spots_data) < 2:
         await message.answer("No data available", reply_markup=main_menu())
         return
 
-    result = pick_best_spots(spots_data, level)
+    try:
+        result = pick_best_spots(spots_data, level)
+    except Exception as e:
+        print("Decision engine error:", e)
+        await message.answer("Error calculating forecast", reply_markup=main_menu())
+        return
 
     best = result["best"]
     alt = result["alternative"]
 
+    # =========================
     # BEST SPOT
-    await message.answer_photo(
-        photo=open("assets/" + best["name"].lower() + ".jpg", "rb"),
-        caption=(
-            f"🏄 Best spot: {best['name']}\n"
-            f"Wave: {best['data']['wave_height']} m\n"
-            f"Period: {best['data']['period']} s\n"
-            f"Wind: {best['data']['wind_speed']} m/s"
-        ),
-        reply_markup=map_button(best["name"]),
-    )
+    # =========================
+    try:
+        await message.answer_photo(
+            photo=open(f"assets/{best['spot']['name'].lower()}.jpg", "rb"),
+            caption=(
+                f"🏄 Best spot: {best['spot']['name']}\n"
+                f"Wave: {best['data']['wave_height']} m\n"
+                f"Period: {best['data']['period']} s\n"
+                f"Wind: {best['data']['wind_speed']} m/s"
+            ),
+            reply_markup=map_button(best["spot"]["name"]),
+        )
+    except Exception as e:
+        print("Photo error:", e)
+        await message.answer(
+            f"🏄 Best spot: {best['spot']['name']}",
+            reply_markup=main_menu()
+        )
 
-    # ALTERNATIVE BUTTON (просто текст)
-    await message.answer("👉 Tap 'Alternative spots'")
-
-    # сохраняем alt в message context нельзя → просто отправляем сразу
+    # =========================
+    # ALTERNATIVE (2 сообщения)
+    # =========================
     await send_alternatives(message, alt)
 
 # =========================
-# ALTERNATIVE (2 сообщения!)
+# ALTERNATIVE
 # =========================
 async def send_alternatives(message: Message, alt):
-    await message.answer_photo(
-        photo=open("assets/" + alt["name"].lower() + ".jpg", "rb"),
-        caption=(
-            f"🏄 Alternative: {alt['name']}\n"
-            f"Wave: {alt['data']['wave_height']} m\n"
-            f"Period: {alt['data']['period']} s\n"
-            f"Wind: {alt['data']['wind_speed']} m/s"
-        ),
-        reply_markup=map_button(alt["name"]),
-    )
+    try:
+        await message.answer_photo(
+            photo=open(f"assets/{alt['spot']['name'].lower()}.jpg", "rb"),
+            caption=(
+                f"🏄 Alternative spot: {alt['spot']['name']}\n"
+                f"Wave: {alt['data']['wave_height']} m\n"
+                f"Period: {alt['data']['period']} s\n"
+                f"Wind: {alt['data']['wind_speed']} m/s"
+            ),
+            reply_markup=map_button(alt["spot"]["name"]),
+        )
+    except Exception as e:
+        print("Alt photo error:", e)
+        await message.answer(
+            f"🏄 Alternative: {alt['spot']['name']}",
+            reply_markup=main_menu()
+        )
 
 # =========================
 # MENU HANDLERS
@@ -147,11 +171,17 @@ async def change_level(message: Message):
 
 @router.message(F.text == "About")
 async def about(message: Message):
-    await message.answer("GoSurf — find best surf spots on Bali 🌊", reply_markup=main_menu())
+    await message.answer(
+        "GoSurf — find best surf spots on Bali 🌊",
+        reply_markup=main_menu()
+    )
 
 @router.message(F.text == "Pro")
 async def pro(message: Message):
-    await message.answer("Pro version coming soon 🚀", reply_markup=main_menu())
+    await message.answer(
+        "Pro version coming soon 🚀",
+        reply_markup=main_menu()
+    )
 
 # =========================
 # MAIN
@@ -159,7 +189,7 @@ async def pro(message: Message):
 async def main():
     dp.include_router(router)
 
-    # 🔥 КРИТИЧЕСКИЙ ФИКС
+    # 🔥 FIX Telegram conflict
     await bot.delete_webhook(drop_pending_updates=True)
 
     await dp.start_polling(bot)
