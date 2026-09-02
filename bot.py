@@ -68,28 +68,41 @@ async def handle_level(callback: types.CallbackQuery):
 
         await callback.message.answer("Loading surf data...")
 
-        # ❗ ВАЖНО — без await
         spots_data = get_spots_data()
+
+        if not spots_data:
+            await callback.message.answer("No data available")
+            return
 
         result = pick_best_spots(spots_data, level)
 
-        if not result:
-            await callback.message.answer("No good spots right now")
+        if not result or not isinstance(result, list):
+            await callback.message.answer("No spots found")
             return
 
         best = result[0]
 
+        # 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА
+        if not best or not isinstance(best, dict):
+            await callback.message.answer("Invalid data from engine")
+            return
+
+        name = best.get("name")
+        if not name:
+            await callback.message.answer("Spot data error")
+            return
+
         text = (
-            f"Best spot: {best['name']}\n"
-            f"Score: {best['score']}\n"
-            f"Wave: {best['wave_height']}m\n"
-            f"Period: {best['period']}s\n"
-            f"Wind: {best['wind']} m/s"
+            f"Best spot: {name}\n"
+            f"Score: {best.get('score', '-')}\n"
+            f"Wave: {best.get('wave_height', '-')}m\n"
+            f"Period: {best.get('period', '-')}s\n"
+            f"Wind: {best.get('wind', '-')} m/s"
         )
 
         await callback.message.answer(
             text,
-            reply_markup=map_button(best["name"])
+            reply_markup=map_button(name)
         )
 
     except Exception as e:
