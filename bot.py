@@ -68,7 +68,7 @@ async def handle_level(callback: types.CallbackQuery):
 
         await callback.message.answer("Loading surf data...")
 
-        # ❗ FIX: НЕ await
+        # ❗ ВАЖНО — без await
         spots_data = get_spots_data()
 
         result = pick_best_spots(spots_data, level)
@@ -94,7 +94,7 @@ async def handle_level(callback: types.CallbackQuery):
 
     except Exception as e:
         logging.exception("ERROR:")
-        await callback.message.answer("Something went wrong")
+        await callback.message.answer(f"Error: {e}")
 
 
 # ================= MAIN =================
