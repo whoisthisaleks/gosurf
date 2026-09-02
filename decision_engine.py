@@ -1,151 +1,139 @@
-def is_offshore(spot_name: str, wind_dir: float) -> bool:
-    """
-    Простая модель направлений для Бали
-    """
+import math
 
-    # нормализуем угол
-    wd = wind_dir % 360
+# =========================
+# SPOT CONFIG (ключ к качеству)
+# =========================
+SPOT_CONFIG = {
+    "Uluwatu": {
+        "ideal_swell_dir": (180, 220),   # S–SW
+        "offshore_wind": (0, 90),        # E wind
+    },
+    "Canggu": {
+        "ideal_swell_dir": (200, 240),   # SW
+        "offshore_wind": (90, 180),      # E-SE
+    },
+    "Kuta": {
+        "ideal_swell_dir": (190, 230),
+        "offshore_wind": (90, 180),
+    },
+    "Medewi": {
+        "ideal_swell_dir": (210, 250),
+        "offshore_wind": (45, 135),      # NE-E
+    },
+}
 
-    if spot_name in ["Canggu", "Kuta", "Medewi"]:
-        # offshore: 60–140 (E-SE)
-        return 60 <= wd <= 140
 
-    if spot_name == "Uluwatu":
-        # offshore: 30–120 (NE-E)
-        return 30 <= wd <= 120
+# =========================
+# HELPERS
+# =========================
+def in_range(angle, start, end):
+    """Check if angle is within circular range"""
+    if start <= end:
+        return start <= angle <= end
+    return angle >= start or angle <= end
 
-    return False
+
+def wind_score(wind_speed, wind_dir, offshore_range):
+    """Wind scoring"""
+    score = 0
+
+    if in_range(wind_dir, *offshore_range):
+        score += 25  # offshore bonus
+    else:
+        score -= 20  # onshore penalty
+
+    if wind_speed > 8:
+        score -= 20
+    elif wind_speed > 5:
+        score -= 10
+
+    return score
 
 
-def score_wave_height(height: float, level: str) -> float:
+def swell_score(swell_dir, ideal_range):
+    """Swell direction scoring"""
+    if in_range(swell_dir, *ideal_range):
+        return 20
+    return -15
+
+
+def wave_score(height, level):
+    """Wave height vs skill"""
     if level == "beginner":
         if 0.8 <= height <= 1.5:
-            return 30
-        elif height < 0.8:
-            return 10
-        else:
-            return -20
+            return 25
+        return -20
 
     if level == "intermediate":
         if 1.0 <= height <= 2.5:
-            return 30
-        elif height < 1.0:
-            return 10
-        else:
-            return 5
+            return 25
+        return -10
 
     if level == "advanced":
         if height >= 1.5:
-            return 30
-        else:
-            return 10
+            return 25
+        return -5
 
     return 0
 
 
-def score_period(period: float) -> float:
+def period_score(period):
     if period >= 12:
-        return 30
-    elif period >= 10:
         return 20
-    elif period >= 8:
-        return 10
-    else:
-        return -10
-
-
-def score_wind(speed: float, offshore: bool) -> float:
-    score = 0
-
-    # ветер по силе
-    if speed < 3:
-        score += 15
-    elif speed < 6:
-        score += 5
-    else:
-        score -= 10
-
-    # направление
-    if offshore:
-        score += 25
-    else:
-        score -= 20
-
-    return score
-
-
-def score_spot(data: dict, level: str, spot_name: str) -> float:
-    if not data:
-        return -999
-
-    wave = data.get("wave_height", 0)
-    period = data.get("period", 0)
-    wind = data.get("wind_speed", 0)
-    wind_dir = data.get("wind_direction", 0)
-
-    offshore = is_offshore(spot_name, wind_dir)
-
-    score = 0
-
-    score += score_wave_height(wave, level)
-    score += score_period(period)
-    score += score_wind(wind, offshore)
-
-    return score
-
-
-def build_reason(data: dict, level: str, spot_name: str) -> str:
-    wave = data.get("wave_height", 0)
-    period = data.get("period", 0)
-    wind = data.get("wind_speed", 0)
-    wind_dir = data.get("wind_direction", 0)
-
-    offshore = is_offshore(spot_name, wind_dir)
-
-    reasons = []
-
-    # волна
-    if level == "beginner" and 0.8 <= wave <= 1.5:
-        reasons.append("Safe wave size")
-    elif level == "intermediate" and 1 <= wave <= 2.5:
-        reasons.append("Good wave size")
-    elif level == "advanced" and wave >= 1.5:
-        reasons.append("Powerful waves")
-
-    # период
     if period >= 10:
-        reasons.append("Long clean swell")
-
-    # ветер
-    if offshore:
-        reasons.append("Offshore wind")
-    else:
-        reasons.append("Onshore wind")
-
-    return "\n".join(reasons)
+        return 10
+    return -5
 
 
-def pick_best_spots(spots_with_data, level: str):
+# =========================
+# MAIN SCORING
+# =========================
+def score_spot(data: dict, level: str, spot_name: str) -> float:
+    try:
+        cfg = SPOT_CONFIG[spot_name]
+
+        height = data.get("wave_height", 0)
+        period = data.get("period", 0)
+        wind_speed = data.get("wind_speed", 0)
+        wind_dir = data.get("wind_direction", 0)
+        swell_dir = data.get("swell_direction", 0)
+
+        score = 50  # base
+
+        score += wave_score(height, level)
+        score += period_score(period)
+        score += wind_score(wind_speed, wind_dir, cfg["offshore_wind"])
+        score += swell_score(swell_dir, cfg["ideal_swell_dir"])
+
+        # clamp 0–100
+        return max(0, min(100, score))
+
+    except Exception as e:
+        print("Score error:", e)
+        return 0
+
+
+# =========================
+# PICK BEST
+# =========================
+def pick_best_spots(spots_with_data, level):
     scored = []
 
     for item in spots_with_data:
         spot = item["spot"]
         data = item["data"]
 
-        s = score_spot(data, level, spot["name"])
+        score = score_spot(data, level, spot["name"])
 
         scored.append({
             "spot": spot,
             "data": data,
-            "score": s
+            "score": score
         })
 
     scored.sort(key=lambda x: x["score"], reverse=True)
 
-    best = scored[0]
-    alt = scored[1] if len(scored) > 1 else scored[0]
-
     return {
-        "best": best,
-        "alternative": alt
+        "best": scored[0],
+        "alternative": scored[1]
     }

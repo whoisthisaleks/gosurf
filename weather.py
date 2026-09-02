@@ -1,101 +1,94 @@
-import aiohttp
-import asyncio
-import time
+import requests
 from datetime import datetime, timezone
-
 from config import STORMGLASS_API_KEY
 
-# ===== CACHE =====
-CACHE = {}
-TTL = 600  # 10 минут
+BASE_URL = "https://api.stormglass.io/v2/weather/point"
+
+PARAMS = ",".join([
+    "waveHeight",
+    "wavePeriod",
+    "waveDirection",
+    "windSpeed",
+    "windDirection",
+    "waterTemperature"
+])
+
+HEADERS = {
+    "Authorization": STORMGLASS_API_KEY
+}
 
 
-def _cache_key(lat, lng):
-    return f"{lat}:{lng}"
+def get_nearest_hour(hours):
+    """Берем ближайший час к текущему времени"""
+    now = datetime.now(timezone.utc)
+
+    closest = min(
+        hours,
+        key=lambda h: abs(
+            datetime.fromisoformat(h["time"].replace("Z", "+00:00")) - now
+        )
+    )
+    return closest
 
 
-# ===== MAIN FUNCTION =====
-async def get_surf_data(spot: dict) -> dict:
-    lat = spot["lat"]
-    lng = spot["lng"]
-
-    key = _cache_key(lat, lng)
-
-    # ===== CACHE HIT =====
-    if key in CACHE:
-        cached = CACHE[key]
-        if time.time() - cached["time"] < TTL:
-            print(f"[CACHE HIT] {spot['name']}")
-            return cached["data"]
-
-    print(f"[API REQUEST] {spot['name']}")
-
-    url = "https://api.stormglass.io/v2/weather/point"
-
-    params = {
-        "lat": lat,
-        "lng": lng,
-        "params": "waveHeight,wavePeriod,windSpeed,windDirection",
-        "source": "sg",
-    }
-
-    headers = {
-        "Authorization": STORMGLASS_API_KEY
-    }
-
+def fetch_weather(lat, lng):
     try:
-        timeout = aiohttp.ClientTimeout(total=10)
+        response = requests.get(
+            BASE_URL,
+            params={
+                "lat": lat,
+                "lng": lng,
+                "params": PARAMS
+            },
+            headers=HEADERS,
+            timeout=10
+        )
 
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, params=params, headers=headers) as resp:
+        data = response.json()
 
-                if resp.status != 200:
-                    print(f"[ERROR] Status: {resp.status}")
-                    return None
+        if "hours" not in data:
+            print("⚠️ Stormglass quota or error:", data)
+            return None
 
-                data = await resp.json()
+        hour = get_nearest_hour(data["hours"])
 
-                hours = data.get("hours")
-
-                if not hours:
-                    print("[ERROR] No hours data")
-                    return None
-
-                # ===== ВЫБОР БЛИЖАЙШЕГО ЧАСА =====
-                now = datetime.now(timezone.utc)
-
-                closest_hour = min(
-                    hours,
-                    key=lambda h: abs(
-                        datetime.fromisoformat(h["time"].replace("Z", "+00:00")) - now
-                    )
-                )
-
-                def safe_extract(param):
-                    value = closest_hour.get(param, {})
-                    if isinstance(value, dict):
-                        return value.get("sg")
-                    return None
-
-                result = {
-                    "wave_height": round(safe_extract("waveHeight") or 0, 2),
-                    "period": round(safe_extract("wavePeriod") or 0, 1),
-                    "wind_speed": round(safe_extract("windSpeed") or 0, 2),
-                    "wind_direction": round(safe_extract("windDirection") or 0, 0),
-                }
-
-                # ===== CACHE SAVE =====
-                CACHE[key] = {
-                    "time": time.time(),
-                    "data": result
-                }
-
-                return result
-
-    except asyncio.TimeoutError:
-        print("[ERROR] Timeout")
-        return None
+        return {
+            "wave_height": hour.get("waveHeight", {}).get("sg", 0),
+            "wave_period": hour.get("wavePeriod", {}).get("sg", 0),
+            "wave_direction": hour.get("waveDirection", {}).get("sg", 0),
+            "wind_speed": hour.get("windSpeed", {}).get("sg", 0),
+            "wind_direction": hour.get("windDirection", {}).get("sg", 0),
+            "water_temp": hour.get("waterTemperature", {}).get("sg", 0),
+            "time": hour.get("time")
+        }
 
     except Exception as e:
-        print(f"[ERROR] {e}")
+        print("❌ Weather fetch error:", e)
         return None
+
+
+def get_spots_data(spots):
+    """
+    Возвращает список:
+    [
+        {
+            "spot": {...},
+            "conditions": {...}
+        }
+    ]
+    """
+
+    result = []
+
+    for spot in spots:
+        weather = fetch_weather(spot["lat"], spot["lng"])
+
+        if not weather:
+            continue
+
+        result.append({
+            "spot": spot,
+            "conditions": weather
+        })
+
+    return result
