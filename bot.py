@@ -16,7 +16,7 @@ from aiogram.enums import ParseMode
 
 from config import BOT_TOKEN
 from weather import get_surf_data
-from decision_engine import pick_best_spots
+from decision_engine import pick_best_spots, score_spot
 from spots import SPOTS
 
 
@@ -70,11 +70,9 @@ def level_keyboard():
 
 def main_inline_keyboard(best_spot: str):
     kb = InlineKeyboardBuilder()
-
     kb.button(text="Open map", url=MAP_LINKS.get(best_spot))
     kb.button(text="Update", callback_data="update")
     kb.button(text="Alternative spots", callback_data="alt")
-
     kb.adjust(1)
     return kb.as_markup()
 
@@ -172,45 +170,54 @@ async def send_result(message: Message, level: str):
     )
 
 
+# ===== ✅ FIXED ALTERNATIVE FLOW =====
+
 async def send_alternatives(message: Message, level: str):
     spots_with_data = await fetch_all_spots()
-    result = pick_best_spots(spots_with_data, level)
 
-    alt = result.get("alternative")
+    scored = []
+    for spot in spots_with_data:
+        s = score_spot(spot["data"], level)
+        scored.append({
+            "name": spot["name"],
+            "data": spot["data"],
+            "score": s
+        })
 
-    if not alt:
+    scored.sort(key=lambda x: x["score"], reverse=True)
+
+    # берем 2 и 3 место
+    alternatives = scored[1:3]
+
+    if not alternatives:
         await message.answer("No alternative spots", reply_markup=main_menu())
         return
 
-    # первая альтернатива
+    # ===== ALT 1 =====
+    spot1 = alternatives[0]
+
     await message.answer_photo(
         photo=FSInputFile("assets/alt.png"),
-        caption=f"""<b>{alt['name']}</b>
+        caption=f"""<b>{spot1['name']}</b>
 
 <b>Conditions:</b>
-{format_conditions(alt['data'])}
+{format_conditions(spot1['data'])}
 """,
-        reply_markup=map_keyboard(alt["name"])
+        reply_markup=map_keyboard(spot1["name"])
     )
 
-    # вторая альтернатива (берем третий спот)
-    sorted_spots = sorted(
-        spots_with_data,
-        key=lambda x: x["data"].get("wave_height") or 0,
-        reverse=True
-    )
+    # ===== ALT 2 =====
+    if len(alternatives) > 1:
+        spot2 = alternatives[1]
 
-    second_alt = sorted_spots[2] if len(sorted_spots) > 2 else None
-
-    if second_alt:
         await message.answer_photo(
             photo=FSInputFile("assets/alt.png"),
-            caption=f"""<b>{second_alt['name']}</b>
+            caption=f"""<b>{spot2['name']}</b>
 
 <b>Conditions:</b>
-{format_conditions(second_alt['data'])}
+{format_conditions(spot2['data'])}
 """,
-            reply_markup=map_keyboard(second_alt["name"])
+            reply_markup=map_keyboard(spot2["name"])
         )
 
 
