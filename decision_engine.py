@@ -1,73 +1,65 @@
-def angle_diff(a, b):
-    diff = abs(a - b) % 360
-    return min(diff, 360 - diff)
-
-
-def wind_score(wind_dir, spot_orientation):
-    diff = angle_diff(wind_dir, spot_orientation)
-
-    # offshore (ветер в лицо волне)
-    if diff > 150:
-        return 3
-
-    # cross
-    if 60 < diff <= 150:
-        return 1
-
-    # onshore
-    return -3
-
-
-def swell_score(swell_dir, spot_orientation):
-    diff = angle_diff(swell_dir, spot_orientation)
-
-    if diff < 40:
-        return 3
-    elif diff < 80:
-        return 2
+def get_condition_label(score):
+    if score >= 13:
+        return "🚀 EPIC"
+    elif score >= 9:
+        return "🔥 GOOD"
+    elif score >= 5:
+        return "👍 OKAY"
     else:
-        return 0
+        return "❌ BAD"
 
 
-def size_score(height, level):
-    if level == "beginner":
-        if 0.8 <= height <= 1.5:
-            return 3
-        return -2
+def analyze_conditions(data, level):
+    reasons = []
 
-    if level == "intermediate":
-        if 1.2 <= height <= 2.5:
-            return 3
-        return 0
+    if data["period"] >= 12:
+        reasons.append("Long period")
+    elif data["period"] >= 9:
+        reasons.append("Decent period")
 
-    if level == "advanced":
-        if height >= 1.5:
-            return 3
-        return 1
+    if data["wind"] < 5:
+        reasons.append("Light wind")
 
+    if data["offshore"]:
+        reasons.append("Offshore wind")
+    else:
+        reasons.append("Onshore wind")
 
-def period_score(period):
-    if period >= 12:
-        return 3
-    if period >= 9:
-        return 2
-    return 0
+    if data["swell_good"]:
+        reasons.append("Good swell direction")
+
+    return reasons
 
 
-def pick_best_spot(spots, level):
-    best = None
-    best_score = -999
+def enrich_spot(data, level):
+    from math import floor
 
-    for s in spots:
-        score = 0
+    score = score_spot(data, level)
 
-        score += size_score(s["wave_height"], level)
-        score += period_score(s["period"])
-        score += wind_score(s["wind_dir"], s["orientation"])
-        score += swell_score(s["swell_dir"], s["orientation"])
+    data["score"] = score
+    data["label"] = get_condition_label(score)
 
-        if score > best_score:
-            best_score = score
-            best = s
+    # 👉 добавляем computed поля
+    data["offshore"] = is_offshore(data["name"], data["wind_dir"])
+    data["swell_good"] = swell_good_for_spot(data["name"], data["swell_dir"])
 
-    return best
+    data["reasons"] = analyze_conditions(data, level)
+
+    return data
+
+
+def pick_best_spots(spots_data, level):
+    enriched = []
+
+    for spot in spots_data:
+        try:
+            enriched.append(enrich_spot(spot, level))
+        except Exception:
+            continue
+
+    enriched = sorted(enriched, key=lambda x: x["score"], reverse=True)
+
+    best = enriched[0] if len(enriched) > 0 else None
+    second = enriched[1] if len(enriched) > 1 else None
+
+    return best, second

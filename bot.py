@@ -1,15 +1,30 @@
 import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import Command
+import logging
+import os
 
-from config import TELEGRAM_TOKEN
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import CommandStart
+
 from weather import get_spots_data
-from decision_engine import pick_best_spot
+from decision_engine import pick_best_spots
+
+logging.basicConfig(level=logging.INFO)
+
+# =========================
+# TOKEN
+# =========================
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+if not TELEGRAM_TOKEN:
+    raise ValueError("TELEGRAM_TOKEN is not set")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
+# =========================
+# MAPS
+# =========================
 MAPS = {
     "Uluwatu": "https://maps.google.com/?q=-8.829,115.084",
     "Canggu": "https://maps.google.com/?q=-8.65,115.13",
@@ -17,54 +32,91 @@ MAPS = {
     "Medewi": "https://maps.google.com/?q=-8.42,114.78",
 }
 
-
-def level_keyboard():
+# =========================
+# START
+# =========================
+@dp.message(CommandStart())
+async def start(message: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Beginner", callback_data="level_beginner")],
         [InlineKeyboardButton(text="Intermediate", callback_data="level_intermediate")],
         [InlineKeyboardButton(text="Advanced", callback_data="level_advanced")],
     ])
-    return kb
 
+    await message.answer(
+        "GoSurf Bali\n\nChoose your level:",
+        reply_markup=kb
+    )
 
-@dp.message(Command("start"))
-async def start(msg: types.Message):
-    await msg.answer("Choose your level:", reply_markup=level_keyboard())
-
-
-@dp.callback_query(lambda c: c.data.startswith("level_"))
-async def handle_level(callback: types.CallbackQuery):
+# =========================
+# LEVEL HANDLER
+# =========================
+@dp.callback_query(F.data.startswith("level_"))
+async def handle_level(callback: CallbackQuery):
     level = callback.data.split("_")[1]
 
-    await callback.answer("Loading...")
+    await callback.answer("Checking conditions...")
 
-    spots = get_spots_data()
-    best = pick_best_spot(spots, level)
+    try:
+        spots_data = await get_spots_data()
 
-    if not best:
-        await callback.message.answer("No data сейчас 😢")
-        return
+        if not spots_data:
+            await callback.message.answer("No surf data available")
+            return
 
-    text = (
-    f"Best spot: {best['name']}\n\n"
-    f"Wave: {best['wave_height']}m\n"
-    f"Period: {best['period']}s\n"
-    f"Wind: {best['wind_speed']} m/s\n"
-    f"Wind dir: {int(best['wind_dir'])}°\n"
-    f"Swell dir: {int(best['swell_dir'])}°"
-)
+        best, second = pick_best_spots(spots_data, level)
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Open map", url=MAPS[best["name"]])]
-    ])
+        if not best:
+            await callback.message.answer("No good spots today")
+            return
 
-    await callback.message.answer(text, reply_markup=kb)
+        # =========================
+        # MAIN RESULT
+        # =========================
+        text = f"""
+{best['label']}
 
+{best['name']}
+Wave: {best['wave']} m
+Period: {best['period']} s
+Wind: {best['wind']} m/s
 
+Why:
+• {"\n• ".join(best["reasons"])}
+"""
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Open map", url=MAPS[best["name"]])]
+        ])
+
+        # =========================
+        # SECOND OPTION
+        # =========================
+        if second:
+            text += f"""
+
+Second option:
+{second['name']} ({second['label']})
+Wave: {second['wave']} m
+
+Why:
+• {"\n• ".join(second["reasons"])}
+"""
+
+        await callback.message.answer(text, reply_markup=kb)
+
+    except Exception as e:
+        logging.exception("ERROR:")
+        await callback.message.answer(f"Error: {str(e)}")
+
+# =========================
+# MAIN
+# =========================
 async def main():
+    # фикс конфликта polling
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
 
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
