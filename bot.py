@@ -1,42 +1,21 @@
 import asyncio
-import os
+import logging
 
-from aiogram import Bot, Dispatcher, Router, F
-from aiogram.types import (
-    Message,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart
 
-from weather import get_surf_data
-from decision_engine import pick_best_spots
+from config import TELEGRAM_TOKEN
 from spots import SPOTS
+from weather import get_spots_data
+from decision_engine import pick_best_spots
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
-router = Router()
 
-# =========================
-# MAIN MENU
-# =========================
-def main_menu():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Restart bot")],
-            [KeyboardButton(text="Change level")],
-            [KeyboardButton(text="About"), KeyboardButton(text="Pro")],
-        ],
-        resize_keyboard=True,
-    )
-
-# =========================
-# MAP LINKS
-# =========================
+# --- MAP LINKS ---
 MAPS = {
     "Uluwatu": "https://maps.google.com/?q=-8.829,115.084",
     "Canggu": "https://maps.google.com/?q=-8.65,115.13",
@@ -44,155 +23,86 @@ MAPS = {
     "Medewi": "https://maps.google.com/?q=-8.42,114.78",
 }
 
-def map_button(spot_name: str):
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Open map", url=MAPS[spot_name])]
-        ]
-    )
 
-# =========================
-# START
-# =========================
-@router.message(CommandStart())
+# --- KEYBOARDS ---
+
+def level_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏄 Beginner", callback_data="level_beginner")],
+        [InlineKeyboardButton(text="🏄‍♂️ Intermediate", callback_data="level_intermediate")],
+        [InlineKeyboardButton(text="🏄‍🔥 Advanced", callback_data="level_advanced")],
+    ])
+
+
+def result_keyboard(spot_name):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📍 Open map", url=MAPS.get(spot_name, ""))],
+        [InlineKeyboardButton(text="🔄 Update", callback_data="update")],
+    ])
+
+
+# --- HANDLERS ---
+
+@dp.message(CommandStart())
 async def start(message: Message):
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Beginner")],
-            [KeyboardButton(text="Intermediate")],
-            [KeyboardButton(text="Advanced")],
-        ],
-        resize_keyboard=True,
-    )
-
     await message.answer(
-        "GoSurf will help you find the best surf spot today 🌊",
-        reply_markup=keyboard,
+        "🌊 GoSurf\n\nSelect your level:",
+        reply_markup=level_keyboard()
     )
 
-# =========================
-# LEVEL HANDLER
-# =========================
-@router.message(F.text.in_(["Beginner", "Intermediate", "Advanced"]))
-async def handle_level(message: Message):
-    level = message.text.lower()
 
-    await message.answer("⏳ Loading...", reply_markup=main_menu())
+@dp.callback_query(F.data.startswith("level_"))
+async def handle_level(callback: CallbackQuery):
+    level = callback.data.split("_")[1]
 
-    spots_data = []
+    await callback.message.answer("⏳ Checking conditions...")
 
-    for spot in SPOTS:
-        try:
-            data = await get_surf_data(spot)
+    # 👉 получаем данные по всем спотам
+    spots_data = get_spots_data(SPOTS)
 
-            if not data:
-                continue
-
-            spots_data.append({
-                "spot": spot,   # ✅ FIX
-                "data": data
-            })
-
-        except Exception as e:
-            print(f"Error loading spot {spot['name']}: {e}")
-
-    if len(spots_data) < 2:
-        await message.answer("No data available", reply_markup=main_menu())
+    if not spots_data:
+        await callback.message.answer("⚠️ Failed to get surf data. Try again later.")
         return
 
-    try:
-        result = pick_best_spots(spots_data, level)
-    except Exception as e:
-        print("Decision engine error:", e)
-        await message.answer("Error calculating forecast", reply_markup=main_menu())
+    # 👉 выбираем лучший спот
+    best = pick_best_spots(spots_data, level)
+
+    if not best:
+        await callback.message.answer("😕 No good spots found today.")
         return
 
-    best = result["best"]
-    alt = result["alternative"]
+    top_spot = best[0]
 
-    # =========================
-    # BEST SPOT
-    # =========================
-    try:
-        await message.answer_photo(
-            photo=open(f"assets/{best['spot']['name'].lower()}.jpg", "rb"),
-            caption=(
-                f"🏄 Best spot: {best['spot']['name']}\n"
-                f"Wave: {best['data']['wave_height']} m\n"
-                f"Period: {best['data']['period']} s\n"
-                f"Wind: {best['data']['wind_speed']} m/s"
-            ),
-            reply_markup=map_button(best["spot"]["name"]),
-        )
-    except Exception as e:
-        print("Photo error:", e)
-        await message.answer(
-            f"🏄 Best spot: {best['spot']['name']}",
-            reply_markup=main_menu()
-        )
+    spot_name = top_spot["spot"]["name"]
+    cond = top_spot["conditions"]
 
-    # =========================
-    # ALTERNATIVE (2 сообщения)
-    # =========================
-    await send_alternatives(message, alt)
-
-# =========================
-# ALTERNATIVE
-# =========================
-async def send_alternatives(message: Message, alt):
-    try:
-        await message.answer_photo(
-            photo=open(f"assets/{alt['spot']['name'].lower()}.jpg", "rb"),
-            caption=(
-                f"🏄 Alternative spot: {alt['spot']['name']}\n"
-                f"Wave: {alt['data']['wave_height']} m\n"
-                f"Period: {alt['data']['period']} s\n"
-                f"Wind: {alt['data']['wind_speed']} m/s"
-            ),
-            reply_markup=map_button(alt["spot"]["name"]),
-        )
-    except Exception as e:
-        print("Alt photo error:", e)
-        await message.answer(
-            f"🏄 Alternative: {alt['spot']['name']}",
-            reply_markup=main_menu()
-        )
-
-# =========================
-# MENU HANDLERS
-# =========================
-@router.message(F.text == "Restart bot")
-async def restart(message: Message):
-    await start(message)
-
-@router.message(F.text == "Change level")
-async def change_level(message: Message):
-    await start(message)
-
-@router.message(F.text == "About")
-async def about(message: Message):
-    await message.answer(
-        "GoSurf — find best surf spots on Bali 🌊",
-        reply_markup=main_menu()
+    text = (
+        f"🏆 Best spot: {spot_name}\n\n"
+        f"🌊 Wave: {cond['wave_height']} m\n"
+        f"⏱ Period: {cond['wave_period']} s\n"
+        f"💨 Wind: {cond['wind_speed']} m/s\n"
     )
 
-@router.message(F.text == "Pro")
-async def pro(message: Message):
-    await message.answer(
-        "Pro version coming soon 🚀",
-        reply_markup=main_menu()
+    await callback.message.answer(
+        text,
+        reply_markup=result_keyboard(spot_name)
     )
 
-# =========================
-# MAIN
-# =========================
+
+@dp.callback_query(F.data == "update")
+async def update_handler(callback: CallbackQuery):
+    await callback.message.answer("🔄 Updating...")
+    await start(callback.message)
+
+
+# --- MAIN ---
+
 async def main():
-    dp.include_router(router)
-
-    # 🔥 FIX Telegram conflict
+    # 🔥 фикс конфликта
     await bot.delete_webhook(drop_pending_updates=True)
 
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
