@@ -1,17 +1,16 @@
+from score import calculate_score
+
 def pick_best(spots, level):
-    ranked = []
+    scored = []
 
     for spot in spots:
         score = calculate_score(spot, level)
         spot["score"] = score
-        ranked.append(spot)
+        scored.append(spot)
 
-    ranked.sort(key=lambda x: x["score"], reverse=True)
+    scored = sorted(scored, key=lambda x: x["score"], reverse=True)
 
-    best = ranked[0]
-    alternatives = ranked[1:3]
+    best = scored[0]
+    alternatives = scored[1:3]
 
     return best, alternatives
-
-
-from score import calculate_score

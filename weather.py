@@ -1,41 +1,41 @@
 import requests
-import os
+from spots import SPOTS
+from config import STORMGLASS_API_KEY
 
-API_KEY = os.getenv("STORMGLASS_API_KEY")
+URL = "https://api.stormglass.io/v2/weather/point"
 
 def get_spots_data():
     results = []
 
     for spot in SPOTS:
+        params = {
+            "lat": spot["lat"],
+            "lng": spot["lng"],
+            "params": "waveHeight,wavePeriod,windSpeed,windDirection"
+        }
+
+        headers = {
+            "Authorization": STORMGLASS_API_KEY
+        }
+
         try:
-            url = "https://api.stormglass.io/v2/weather/point"
-
-            params = {
-                "lat": spot["lat"],
-                "lng": spot["lng"],
-                "params": "waveHeight,wavePeriod,windSpeed,windDirection,swellDirection",
-                "source": "sg"
-            }
-
-            headers = {"Authorization": API_KEY}
-
-            res = requests.get(url, params=params, headers=headers)
+            res = requests.get(URL, params=params, headers=headers)
             data = res.json()
 
             hour = data["hours"][0]
 
             results.append({
-                "spot": spot["name"],
+                "name": spot["name"],
                 "lat": spot["lat"],
                 "lng": spot["lng"],
+
                 "wave": hour["waveHeight"]["sg"],
                 "period": hour["wavePeriod"]["sg"],
                 "wind": hour["windSpeed"]["sg"],
                 "wind_dir": hour["windDirection"]["sg"],
-                "swell_dir": hour["swellDirection"]["sg"]
             })
 
-        except Exception:
-            continue
+        except Exception as e:
+            print("Weather error:", e)
 
     return results
