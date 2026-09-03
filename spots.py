@@ -1,6 +1,17 @@
 SPOTS = [
-    {"name": "Uluwatu", "lat": -8.829, "lng": 115.084},
-    {"name": "Canggu", "lat": -8.65, "lng": 115.13},
-    {"name": "Kuta", "lat": -8.72, "lng": 115.17},
-    {"name": "Medewi", "lat": -8.42, "lng": 114.78},
+    {
+        "name": "Canggu",
+        "lat": -8.6512,
+        "lng": 115.1385
+    },
+    {
+        "name": "Uluwatu",
+        "lat": -8.8189,
+        "lng": 115.0852
+    },
+    {
+        "name": "Kuta",
+        "lat": -8.7177,
+        "lng": 115.1682
+    }
 ]

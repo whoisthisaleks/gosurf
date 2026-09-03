@@ -1,77 +1,41 @@
 import requests
-from datetime import datetime, timezone
-from config import STORMGLASS_API_KEY
+import os
 
-SPOTS = {
-    "Uluwatu": {"lat": -8.829, "lng": 115.084, "orientation": 210},
-    "Canggu": {"lat": -8.65, "lng": 115.13, "orientation": 220},
-    "Kuta": {"lat": -8.72, "lng": 115.17, "orientation": 215},
-    "Medewi": {"lat": -8.42, "lng": 114.78, "orientation": 240},
-}
-
+API_KEY = os.getenv("STORMGLASS_API_KEY")
 
 def get_spots_data():
-    result = []
+    results = []
 
-    for name, spot in SPOTS.items():
-        url = (
-            f"https://api.stormglass.io/v2/weather/point?"
-            f"lat={spot['lat']}&lng={spot['lng']}"
-            f"&params=waveHeight,wavePeriod,windSpeed,windDirection,waveDirection"
-        )
-
-        tide_url = (
-            f"https://api.stormglass.io/v2/tide/sea-level/point?"
-            f"lat={spot['lat']}&lng={spot['lng']}"
-        )
-
-        headers = {"Authorization": STORMGLASS_API_KEY}
-
+    for spot in SPOTS:
         try:
-            # weather
-            res = requests.get(url, headers=headers)
+            url = "https://api.stormglass.io/v2/weather/point"
+
+            params = {
+                "lat": spot["lat"],
+                "lng": spot["lng"],
+                "params": "waveHeight,wavePeriod,windSpeed,windDirection,swellDirection",
+                "source": "sg"
+            }
+
+            headers = {"Authorization": API_KEY}
+
+            res = requests.get(url, params=params, headers=headers)
             data = res.json()
-            hours = data.get("hours", [])
 
-            # tide
-            tide_res = requests.get(tide_url, headers=headers)
-            tide_data = tide_res.json()
-            tide_hours = tide_data.get("data", [])
+            hour = data["hours"][0]
 
-            if not hours:
-                continue
-
-            now = datetime.now(timezone.utc)
-
-            closest = min(
-                hours,
-                key=lambda h: abs(
-                    datetime.fromisoformat(h["time"].replace("Z", "+00:00")) - now
-                ),
-            )
-
-            tide_level = None
-            if tide_hours:
-                tide_closest = min(
-                    tide_hours,
-                    key=lambda h: abs(
-                        datetime.fromisoformat(h["time"].replace("Z", "+00:00")) - now
-                    ),
-                )
-                tide_level = tide_closest["sg"]
-
-            result.append({
-                "name": name,
-                "orientation": spot["orientation"],
-                "wave_height": closest["waveHeight"]["sg"],
-                "period": closest["wavePeriod"]["sg"],
-                "wind_speed": closest["windSpeed"]["sg"],
-                "wind_dir": closest["windDirection"]["sg"],
-                "swell_dir": closest["waveDirection"]["sg"],
-                "tide": tide_level,
+            results.append({
+                "spot": spot["name"],
+                "lat": spot["lat"],
+                "lng": spot["lng"],
+                "wave": hour["waveHeight"]["sg"],
+                "period": hour["wavePeriod"]["sg"],
+                "wind": hour["windSpeed"]["sg"],
+                "wind_dir": hour["windDirection"]["sg"],
+                "swell_dir": hour["swellDirection"]["sg"]
             })
 
-        except Exception as e:
-            print("Weather error:", e)
+        except Exception:
+            continue
 
-    return result
+    return results

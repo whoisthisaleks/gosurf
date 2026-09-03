@@ -1,121 +1,137 @@
 import asyncio
-import logging
 import os
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    FSInputFile
+)
 from aiogram.filters import CommandStart
 
 from weather import get_spots_data
-from decision_engine import pick_best_spots
+from decision_engine import pick_best
 
+TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# ================= CONFIG =================
-
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-
-if not TELEGRAM_TOKEN:
-    raise ValueError("TELEGRAM_TOKEN is missing")
-
-logging.basicConfig(level=logging.INFO)
-
-bot = Bot(token=TELEGRAM_TOKEN)
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 
-# ================= MAPS =================
-
-MAPS = {
-    "Uluwatu": "https://maps.google.com/?q=-8.829,115.084",
-    "Canggu": "https://maps.google.com/?q=-8.65,115.13",
-    "Kuta": "https://maps.google.com/?q=-8.72,115.17",
-    "Medewi": "https://maps.google.com/?q=-8.42,114.78",
-}
-
-
-# ================= UI =================
-
-def level_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="Beginner", callback_data="level_beginner"),
-            InlineKeyboardButton(text="Intermediate", callback_data="level_intermediate"),
-            InlineKeyboardButton(text="Advanced", callback_data="level_advanced"),
-        ]
-    ])
+# --- MAIN MENU ---
+menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Restart bot")],
+        [KeyboardButton(text="Change level")],
+        [KeyboardButton(text="About")],
+        [KeyboardButton(text="Pro")]
+    ],
+    resize_keyboard=True
+)
 
 
-def map_button(spot_name: str):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Open map", url=MAPS.get(spot_name))]
-    ])
+# --- LEVEL BUTTONS ---
+levels = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Beginner")],
+        [KeyboardButton(text="Intermediate")],
+        [KeyboardButton(text="Advanced")]
+    ],
+    resize_keyboard=True
+)
 
 
-# ================= HANDLERS =================
-
+# --- START ---
 @dp.message(CommandStart())
 async def start(message: types.Message):
+    photo = FSInputFile("assets/start.png")
+
+    await message.answer_photo(photo)
+
     await message.answer(
-        "Select your level:",
-        reply_markup=level_keyboard()
+        "<b>Hey surfer</b>\n\nWhat's your level?",
+        parse_mode="HTML",
+        reply_markup=levels
     )
 
 
-@dp.callback_query()
-async def handle_level(callback: types.CallbackQuery):
-    try:
-        level = callback.data.replace("level_", "")
+# --- LEVEL ---
+@dp.message(lambda m: m.text in ["Beginner", "Intermediate", "Advanced"])
+async def handle_level(message: types.Message):
+    level = message.text
 
-        await callback.message.answer("Loading surf data...")
+    await message.answer("Loading surf data...")
 
-        spots_data = get_spots_data()
+    spots = get_spots_data()
 
-        if not spots_data:
-            await callback.message.answer("No data available")
-            return
+    result = pick_best(spots, level)
 
-        result = pick_best_spots(spots_data, level)
+    best = result["best"]
+    alt = result["alternatives"]
 
-        if not result or not isinstance(result, list):
-            await callback.message.answer("No spots found")
-            return
+    # --- IMAGE ---
+    await message.answer_photo(FSInputFile("assets/best.png"))
 
-        best = result[0]
+    # --- TEXT ---
+    text = (
+        f"<b>Best spot: {best['spot']} ({best['score']}/100)</b>\n\n"
+        f"<b>Conditions</b>\n"
+        f"Wave: {best['wave']} m\n"
+        f"Wind: {best['wind']} m/s\n"
+        f"Period: {best['period']} s\n\n"
+        f"<b>Alternatives</b>\n"
+        f"{alt[0]['spot']}\n{alt[1]['spot']}"
+    )
 
-        # 🔥 КРИТИЧЕСКАЯ ПРОВЕРКА
-        if not best or not isinstance(best, dict):
-            await callback.message.answer("Invalid data from engine")
-            return
+    # --- INLINE BUTTONS ---
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="Open map",
+            url=f"https://maps.google.com/?q={best['lat']},{best['lng']}"
+        )],
+        [InlineKeyboardButton(text="Update", callback_data="update")],
+        [InlineKeyboardButton(text="Alternative spots", callback_data="alts")]
+    ])
 
-        name = best.get("name")
-        if not name:
-            await callback.message.answer("Spot data error")
-            return
+    await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+# --- CALLBACK: UPDATE ---
+@dp.callback_query(lambda c: c.data == "update")
+async def update(call: types.CallbackQuery):
+    await handle_level(call.message)
+
+
+# --- CALLBACK: ALTERNATIVES ---
+@dp.callback_query(lambda c: c.data == "alts")
+async def show_alts(call: types.CallbackQuery):
+    spots = get_spots_data()
+    result = pick_best(spots, "Intermediate")
+
+    for spot in result["alternatives"]:
+        await call.message.answer_photo(FSInputFile("assets/alt.png"))
 
         text = (
-            f"Best spot: {name}\n"
-            f"Score: {best.get('score', '-')}\n"
-            f"Wave: {best.get('wave_height', '-')}m\n"
-            f"Period: {best.get('period', '-')}s\n"
-            f"Wind: {best.get('wind', '-')} m/s"
+            f"<b>{spot['spot']}</b>\n\n"
+            f"<b>Conditions</b>\n"
+            f"Wave: {spot['wave']} m\n"
+            f"Wind: {spot['wind']} m/s\n"
+            f"Period: {spot['period']} s"
         )
 
-        await callback.message.answer(
-            text,
-            reply_markup=map_button(name)
-        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="Open map",
+                url=f"https://maps.google.com/?q={spot['lat']},{spot['lng']}"
+            )]
+        ])
 
-    except Exception as e:
-        logging.exception("ERROR:")
-        await callback.message.answer(f"Error: {e}")
+        await call.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
 
 
-# ================= MAIN =================
-
+# --- MAIN ---
 async def main():
-    # 🔥 КЛЮЧЕВОЙ ФИКС КОНФЛИКТА
     await bot.delete_webhook(drop_pending_updates=True)
-
     await dp.start_polling(bot)
 
 
