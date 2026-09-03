@@ -1,21 +1,14 @@
-# cache.py
-
 import time
 
-_cache = {}
-
-TTL = 600  # 10 минут
-
+CACHE = {}
+CACHE_TTL = 900  # 15 минут
 
 def get_cache(key):
-    if key in _cache:
-        value, ts = _cache[key]
-
-        if time.time() - ts < TTL:
-            return value
-
+    if key in CACHE:
+        data, ts = CACHE[key]
+        if time.time() - ts < CACHE_TTL:
+            return data
     return None
 
-
 def set_cache(key, value):
-    _cache[key] = (value, time.time())
+    CACHE[key] = (value, time.time())
