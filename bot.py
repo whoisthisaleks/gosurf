@@ -1,196 +1,112 @@
-import logging
-import os
-
-from aiogram import Bot, Dispatcher, types, F
+import asyncio
+from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
+from config import TOKEN
 from weather import get_spots_data
 from decision_engine import pick_best
-
-logging.basicConfig(level=logging.INFO)
-
-from dotenv import load_dotenv
-import os
-
-from config import TOKEN
-
-load_dotenv()
-
-TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 user_level = {}
 
+# --- keyboards ---
+level_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Beginner")],
+        [KeyboardButton(text="Intermediate")],
+        [KeyboardButton(text="Advanced")]
+    ],
+    resize_keyboard=True
+)
 
-# ====== KEYBOARDS ======
+menu_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Update"), KeyboardButton(text="Alternative spots")],
+        [KeyboardButton(text="Restart bot"), KeyboardButton(text="Change Level")],
+        [KeyboardButton(text="About"), KeyboardButton(text="Pro")]
+    ],
+    resize_keyboard=True
+)
 
-def level_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Beginner")],
-            [KeyboardButton(text="Intermediate")],
-            [KeyboardButton(text="Advanced")]
-        ],
-        resize_keyboard=True
-    )
-
-
-def main_menu():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Restart bot")],
-            [KeyboardButton(text="Change level")],
-            [KeyboardButton(text="About"), KeyboardButton(text="Pro")]
-        ],
-        resize_keyboard=True
-    )
-
-
-def result_keyboard(best):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Open Map", url=f"https://maps.google.com/?q={best['lat']},{best['lng']}")],
-        [InlineKeyboardButton(text="Update", callback_data="update")],
-        [InlineKeyboardButton(text="Alternative spots", callback_data="alts")]
-    ])
-
-
-def alt_keyboard(spot):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Open Map", url=f"https://maps.google.com/?q={spot['lat']},{spot['lng']}")]
-    ])
-
-
-# ====== START ======
-
+# --- start ---
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    photo = types.FSInputFile("assets/start.png")
-
     await message.answer_photo(
-        photo=photo,
-        caption="<b>Hey surfer</b>\nWhat's your level?",
-        parse_mode="HTML",
-        reply_markup=level_keyboard()
+        photo=types.FSInputFile("assets/start.png"),
+        caption="**Hey surfer 🌊**\nWhat's your level?",
+        parse_mode="Markdown",
+        reply_markup=level_kb
     )
 
-
-# ====== LEVEL SELECT ======
-
-@dp.message(F.text.in_(["Beginner", "Intermediate", "Advanced"]))
+# --- level selected ---
+@dp.message(lambda m: m.text in ["Beginner", "Intermediate", "Advanced"])
 async def handle_level(message: types.Message):
     level = message.text.lower()
     user_level[message.from_user.id] = level
 
-    await send_best(message, level)
+    spots = get_spots_data()
+    best, alternatives = pick_best(spots, level)
 
+    text = (
+        f"🏄 **Best spot: {best['name']} (score {best['score']}/100)**\n\n"
+        f"**Conditions:**\n"
+        f"Wave: {best['wave']}m\n"
+        f"Wind: {best['wind']} m/s\n"
+        f"Period: {best['period']}s\n\n"
+        f"**Alternatives:**\n"
+        f"{alternatives[0]['name']}, {alternatives[1]['name']}"
+    )
 
-# ====== CORE FUNCTION ======
+    await message.answer_photo(
+        photo=types.FSInputFile("assets/best.png"),
+        caption=text,
+        parse_mode="Markdown",
+        reply_markup=menu_kb
+    )
 
-async def send_best(message, level):
-    await message.answer("Loading surf data...")
+# --- update ---
+@dp.message(lambda m: m.text == "Update")
+async def update(message: types.Message):
+    level = user_level.get(message.from_user.id, "beginner")
 
     spots = get_spots_data()
     best, alternatives = pick_best(spots, level)
 
-    photo = types.FSInputFile("assets/best.png")
-
-    text = (
-        f"<b>Best spot: {best['name']} — {best['score']}/100</b>\n\n"
-        f"<b>Conditions</b>\n"
-        f"Wave: {best['wave']} m\n"
-        f"Wind: {best['wind']} m/s\n"
-        f"Period: {best['period']} s\n"
+    await message.answer(
+        f"🏄 **Best spot: {best['name']} ({best['score']})**",
+        parse_mode="Markdown"
     )
 
-    await message.answer_photo(
-        photo=photo,
-        caption=text,
-        parse_mode="HTML",
-        reply_markup=result_keyboard(best)
-    )
+# --- alternatives ---
+@dp.message(lambda m: m.text == "Alternative spots")
+async def alternatives_handler(message: types.Message):
+    level = user_level.get(message.from_user.id, "beginner")
 
-    await message.answer("Menu", reply_markup=main_menu())
+    spots = get_spots_data()
+    _, alternatives = pick_best(spots, level)
 
-    # сохраняем альтернативы
-    user_level[f"{message.from_user.id}_alts"] = alternatives
-
-
-# ====== UPDATE ======
-
-@dp.callback_query(F.data == "update")
-async def update_handler(callback: types.CallbackQuery):
-    level = user_level.get(callback.from_user.id)
-
-    if not level:
-        await callback.message.answer("Choose level first")
-        return
-
-    await send_best(callback.message, level)
-
-
-# ====== ALTERNATIVES ======
-
-@dp.callback_query(F.data == "alts")
-async def alts_handler(callback: types.CallbackQuery):
-    alts = user_level.get(f"{callback.from_user.id}_alts")
-
-    if not alts:
-        await callback.message.answer("No alternatives")
-        return
-
-    photo = types.FSInputFile("assets/alt.png")
-
-    await callback.message.answer_photo(photo=photo)
-
-    for spot in alts:
+    for spot in alternatives:
         text = (
-            f"<b>{spot['name']}</b>\n\n"
-            f"<b>Conditions</b>\n"
-            f"Wave: {spot['wave']} m\n"
+            f"🏄 **{spot['name']}**\n\n"
+            f"**Conditions:**\n"
+            f"Wave: {spot['wave']}m\n"
             f"Wind: {spot['wind']} m/s\n"
-            f"Period: {spot['period']} s\n"
+            f"Period: {spot['period']}s"
         )
 
-        await callback.message.answer(
-            text,
-            parse_mode="HTML",
-            reply_markup=alt_keyboard(spot)
+        await message.answer_photo(
+            photo=types.FSInputFile("assets/alt.png"),
+            caption=text,
+            parse_mode="Markdown"
         )
 
-
-# ====== MENU ======
-
-@dp.message(F.text == "Restart bot")
-async def restart(message: types.Message):
-    await start(message)
-
-
-@dp.message(F.text == "Change level")
-async def change_level(message: types.Message):
-    await message.answer("Choose level:", reply_markup=level_keyboard())
-
-
-@dp.message(F.text == "About")
-async def about(message: types.Message):
-    await message.answer("About section in progress")
-
-
-@dp.message(F.text == "Pro")
-async def pro(message: types.Message):
-    await message.answer("Pro version coming soon")
-
-
-# ====== MAIN ======
-
+# --- run ---
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
-
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())

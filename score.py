@@ -1,31 +1,32 @@
 def calculate_score(spot, level):
-    wave = spot.get("wave") or 0
-    period = spot.get("period") or 0
-    wind = spot.get("wind") or 0
+    wave = spot["wave"]
+    period = spot["period"]
+    wind = spot["wind"]
 
     score = 0
 
-    # WAVE
-    if level == "Beginner":
+    # 🌊 wave
+    if level == "beginner":
         if 0.8 <= wave <= 1.5:
-            score += 40
-    elif level == "Intermediate":
-        if 1.2 <= wave <= 2.2:
-            score += 40
-    elif level == "Advanced":
-        if wave >= 1.5:
-            score += 40
+            score += 30
+    elif level == "intermediate":
+        if 1.2 <= wave <= 2.0:
+            score += 30
+    else:
+        if wave >= 1.8:
+            score += 30
 
-    # PERIOD
+    # ⏱ period
     if period >= 10:
-        score += 30
-    elif period >= 7:
-        score += 15
+        score += 25
 
-    # WIND
+    # 💨 wind (меньше лучше)
     if wind <= 5:
-        score += 30
+        score += 25
     elif wind <= 8:
         score += 15
 
-    return score
+    # бонус
+    score += 20
+
+    return min(score, 100)
