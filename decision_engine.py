@@ -1,31 +1,17 @@
-def pick_best_spots(spots_data, level):
-    results = []
+def pick_best(spots, level):
+    ranked = []
 
-    for spot in spots_data:
-        try:
-            score = 0
+    for spot in spots:
+        score = calculate_score(spot, level)
+        spot["score"] = score
+        ranked.append(spot)
 
-            wave = spot.get("wave_height", 0)
-            period = spot.get("period", 0)
-            wind = spot.get("wind", 0)
+    ranked.sort(key=lambda x: x["score"], reverse=True)
 
-            # простая логика
-            score += wave * 10
-            score += period * 5
-            score -= wind * 3
+    best = ranked[0]
+    alternatives = ranked[1:3]
 
-            results.append({
-                "name": spot.get("name"),
-                "score": round(score, 1),
-                "wave_height": wave,
-                "period": period,
-                "wind": wind
-            })
+    return best, alternatives
 
-        except Exception:
-            continue
 
-    # сортировка
-    results = sorted(results, key=lambda x: x["score"], reverse=True)
-
-    return results
+from score import calculate_score
