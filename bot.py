@@ -1,153 +1,135 @@
 import asyncio
 import logging
-import os
-
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
+from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, FSInputFile
+from aiogram.filters import Command
 
+from config import TELEGRAM_TOKEN
 from weather import get_spots_data
-from decision_engine import pick_best
-
-TOKEN = os.getenv("BOT_TOKEN")
-
-if not TOKEN:
-    raise ValueError("BOT_TOKEN is not set")
+from decision_engine import pick_best_spots
 
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=TOKEN)
+bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-# =====================
-# STATE (простое хранение уровня)
-# =====================
-user_levels = {}
+# --- STATE ---
+user_level = {}
 
-# =====================
-# KEYBOARDS
-# =====================
+# --- KEYBOARDS ---
 
-level_keyboard = ReplyKeyboardMarkup(
+level_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Beginner")],
         [KeyboardButton(text="Intermediate")],
-        [KeyboardButton(text="Advanced")],
+        [KeyboardButton(text="Advanced")]
     ],
     resize_keyboard=True
 )
 
-main_keyboard = ReplyKeyboardMarkup(
+main_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🔄 Update forecast")],
-        [KeyboardButton(text="🔁 Change level")],
+        [KeyboardButton(text="Update")],
+        [KeyboardButton(text="Change level")],
+        [KeyboardButton(text="Restart")]
     ],
     resize_keyboard=True
 )
 
-# =====================
-# FORMAT
-# =====================
+# --- TEXT TEMPLATES ---
 
-def format_response(best, alternatives):
-    text = f"🏄‍♂️ Best spot today: {best['name']}\n\n"
-
-    text += "Conditions:\n"
-    text += f"• Wave: {round(best['wave_height'], 1)}m\n"
-    text += f"• Period: {round(best['period'], 1)}s\n"
-    text += f"• Wind dir: {int(best['wind_dir'])}°\n\n"
-
-    text += "Why:\n"
-    text += "Clean swell + favorable wind → best quality waves today\n"
-
-    return text
+def format_best_spot(spot, level):
+    return (
+        f"Best spot: {spot['name']}\n\n"
+        f"Conditions:\n"
+        f"- Wave: {spot['wave']} m\n"
+        f"- Period: {spot['period']} s\n"
+        f"- Wind: {spot['wind']}\n\n"
+        f"Recommended for: {level}"
+    )
 
 
-def format_alternative(spot):
-    return f"🌊 {spot['name']} — {round(spot['wave_height'],1)}m, {round(spot['period'],1)}s"
+def format_alt_spot(spot):
+    return (
+        f"{spot['name']}\n"
+        f"Wave: {spot['wave']} m | "
+        f"Period: {spot['period']} s | "
+        f"Wind: {spot['wind']}"
+    )
 
 
-# =====================
-# CORE LOGIC
-# =====================
-
-async def send_forecast(message: types.Message, level: str):
-    try:
-        print("LEVEL:", level)
-
-        spots = get_spots_data()
-        best, alternatives = pick_best(spots, level)
-
-        # --- BEST SPOT ---
-        text = format_response(best, alternatives)
-        await message.answer(text, reply_markup=main_keyboard)
-
-        # --- ALTERNATIVES ---
-        if alternatives:
-            photo = FSInputFile("assets/alt.png")
-
-            # картинка ТОЛЬКО перед первым
-            await message.answer_photo(
-                photo=photo,
-                caption="Alternative spots:"
-            )
-
-            for alt in alternatives:
-                await message.answer(format_alternative(alt))
-
-    except Exception as e:
-        logging.exception(e)
-        await message.answer("⚠️ Error getting surf data. Try again later.")
-
-
-# =====================
-# HANDLERS
-# =====================
+# --- HANDLERS ---
 
 @dp.message(Command("start"))
-async def start_handler(message: types.Message):
-    await message.answer(
-        "🏄‍♂️ GoSurf\n\nChoose your level:",
-        reply_markup=level_keyboard
+async def start(message: types.Message):
+    await message.answer_photo(
+        photo=FSInputFile("assets/start.png"),
+        caption="GoSurf\n\nSelect your level:",
+        reply_markup=level_kb
     )
 
 
-@dp.message(F.text.in_(["Beginner", "Intermediate", "Advanced"]))
+@dp.message(lambda message: message.text in ["Beginner", "Intermediate", "Advanced"])
 async def set_level(message: types.Message):
-    level_map = {
-        "Beginner": "beginner",
-        "Intermediate": "intermediate",
-        "Advanced": "advanced"
-    }
+    user_level[message.from_user.id] = message.text
 
-    level = level_map[message.text]
-    user_levels[message.from_user.id] = level
+    await message.answer("Level saved. Fetching forecast...")
 
-    await send_forecast(message, level)
+    await send_recommendation(message)
 
 
-@dp.message(F.text == "🔄 Update forecast")
-async def update_handler(message: types.Message):
-    level = user_levels.get(message.from_user.id)
+@dp.message(lambda message: message.text == "Update")
+async def update(message: types.Message):
+    await message.answer("Updating forecast...")
+    await send_recommendation(message)
+
+
+@dp.message(lambda message: message.text == "Change level")
+async def change_level(message: types.Message):
+    await message.answer("Select your level:", reply_markup=level_kb)
+
+
+@dp.message(lambda message: message.text == "Restart")
+async def restart(message: types.Message):
+    user_level.pop(message.from_user.id, None)
+    await start(message)
+
+
+# --- CORE LOGIC ---
+
+async def send_recommendation(message: types.Message):
+    level = user_level.get(message.from_user.id)
 
     if not level:
-        await message.answer("Choose level first 👇", reply_markup=level_keyboard)
+        await message.answer("Please select your level first.", reply_markup=level_kb)
         return
 
-    await send_forecast(message, level)
+    spots = get_spots_data()
+    best, alternatives = pick_best_spots(spots, level)
 
-
-@dp.message(F.text == "🔁 Change level")
-async def change_level(message: types.Message):
-    await message.answer(
-        "Choose your level again 👇",
-        reply_markup=level_keyboard
+    # --- BEST SPOT ---
+    await message.answer_photo(
+        photo=FSInputFile("assets/best.png"),
+        caption=format_best_spot(best, level),
+        reply_markup=main_kb
     )
 
+    # --- ALTERNATIVES ---
+    if alternatives:
+        first = True
 
-# =====================
-# MAIN
-# =====================
+        for alt in alternatives:
+            if first:
+                await message.answer_photo(
+                    photo=FSInputFile("assets/alt.png"),
+                    caption="Alternative spots:\n\n" + format_alt_spot(alt)
+                )
+                first = False
+            else:
+                await message.answer(format_alt_spot(alt))
+
+
+# --- RUN ---
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
