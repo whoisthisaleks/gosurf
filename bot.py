@@ -19,6 +19,16 @@ dp = Dispatcher()
 
 
 # ======================
+# FORMAT HELPERS
+# ======================
+
+def format_swell(value):
+    if value is None:
+        return "unknown"
+    return f"{int(value)}°"
+
+
+# ======================
 # UI TEXT BUILDERS
 # ======================
 
@@ -35,7 +45,8 @@ def build_best_text(best, alternatives):
     text += (
         f"Wave: {best['wave']}m\n"
         f"Period: {best['period']}s\n"
-        f"Wind: {best['wind']}\n\n"
+        f"Wind: {best['wind']}\n"
+        f"Swell: {format_swell(best.get('swell_dir'))}\n\n"
     )
 
     if alternatives:
@@ -54,7 +65,8 @@ def build_alternatives_text(alternatives):
             f"<b>{alt['spot']}</b>\n"
             f"Wave: {alt['wave']}m\n"
             f"Period: {alt['period']}s\n"
-            f"Wind: {alt['wind']}\n\n"
+            f"Wind: {alt['wind']}\n"
+            f"Swell: {format_swell(alt.get('swell_dir'))}\n\n"
         )
 
     return text
@@ -120,14 +132,14 @@ async def handle(message: types.Message):
         weather_data = [fetch_spot_weather(s) for s in SPOTS]
         best, alternatives = pick_best_spots(weather_data, text)
 
-        # BEST MESSAGE
+        # BEST
         await message.answer_photo(
             photo=FSInputFile("assets/best.png"),
             caption=build_best_text(best, alternatives),
             reply_markup=get_main_keyboard()
         )
 
-        # DETAILED ALTERNATIVES
+        # ALTERNATIVES DETAILS
         if alternatives:
             await message.answer_photo(
                 photo=FSInputFile("assets/alt.png"),
