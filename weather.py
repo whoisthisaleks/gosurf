@@ -1,86 +1,124 @@
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import STORMGLASS_API_KEY
-from spots import SPOTS
+from cache import get_cache, set_cache
 
-STORM_URL = "https://api.stormglass.io/v2/weather/point"
+BASE_URL = "https://api.stormglass.io/v2/weather/point"
 
-PARAMS = ",".join([
-    "waveHeight",
-    "wavePeriod",
-    "windSpeed",
-])
-
-HEADERS = {
-    "Authorization": STORMGLASS_API_KEY
+DEFAULT_DATA = {
+    "wave": 0.8,
+    "period": 8,
+    "wind_speed": 5,
+    "wind_direction": 0,
 }
 
 
-def get_spots_data():
-    results = []
-
-    for spot in SPOTS:
-        try:
-            response = requests.get(
-                STORM_URL,
-                params={
-                    "lat": spot["lat"],
-                    "lng": spot["lng"],
-                    "params": PARAMS,
-                },
-                headers=HEADERS,
-                timeout=10
-            )
-
-            data = response.json()
-
-            # защита от пустого ответа
-            if "hours" not in data or not data["hours"]:
-                continue
-
-            current = data["hours"][0]
-
-            # безопасное извлечение значений
-            wave = _extract(current, "waveHeight")
-            period = _extract(current, "wavePeriod")
-            wind = _extract(current, "windSpeed")
-
-            spot_data = {
-                "name": spot["name"],
-                "wave": round(wave, 1) if wave else 0,
-                "period": round(period, 1) if period else 0,
-                "wind": round(wind, 1) if wind else 0,
-            }
-
-            results.append(spot_data)
-
-        except Exception as e:
-            print(f"Weather error for {spot['name']}: {e}")
-            continue
-
-    return results
+def _safe_get(d, path, default=None):
+    try:
+        for p in path:
+            d = d[p]
+        return d
+    except (KeyError, TypeError, IndexError):
+        return default
 
 
-def _extract(hour_data, key):
-    """
-    Stormglass возвращает значения из разных источников.
-    Берём первый доступный.
-    """
-    if key not in hour_data:
-        return None
+def _parse_hour(hour):
+    wave = _safe_get(hour, ["waveHeight", "sg"], DEFAULT_DATA["wave"])
+    period = _safe_get(hour, ["wavePeriod", "sg"], DEFAULT_DATA["period"])
+    wind_speed = _safe_get(hour, ["windSpeed", "sg"], DEFAULT_DATA["wind_speed"])
+    wind_direction = _safe_get(hour, ["windDirection", "sg"], DEFAULT_DATA["wind_direction"])
 
-    sources = hour_data[key]
+    return {
+        "wave": wave or DEFAULT_DATA["wave"],
+        "period": period or DEFAULT_DATA["period"],
+        "wind_speed": wind_speed or DEFAULT_DATA["wind_speed"],
+        "wind_direction": wind_direction or DEFAULT_DATA["wind_direction"],
+    }
 
-    # приоритет источников (можешь поменять позже)
-    priority = ["sg", "noaa", "dwd", "icon"]
 
-    for src in priority:
-        if src in sources and sources[src] is not None:
-            return sources[src]
+def _wind_type(direction):
+    if direction is None:
+        return "unknown"
 
-    # fallback — любое значение
-    for val in sources.values():
-        if val is not None:
-            return val
+    if 45 <= direction <= 135:
+        return "offshore"
+    elif 225 <= direction <= 315:
+        return "onshore"
+    return "cross"
 
-    return None
+
+def fetch_spot_weather(spot):
+    cache_key = f"weather:{spot['name']}"
+    cached = get_cache(cache_key)
+
+    if cached:
+        return cached
+
+    now = datetime.utcnow()
+    later = now + timedelta(hours=1)
+
+    params = {
+        "lat": spot["lat"],
+        "lng": spot["lng"],
+        "params": "waveHeight,wavePeriod,windSpeed,windDirection",
+        "start": now.isoformat(),
+        "end": later.isoformat(),
+    }
+
+    headers = {
+        "Authorization": STORMGLASS_API_KEY
+    }
+
+    try:
+        response = requests.get(BASE_URL, params=params, headers=headers, timeout=10)
+
+        print(f"{spot['name']} status:", response.status_code)
+
+        if response.status_code != 200:
+            print("Bad response:", response.text[:200])
+            return _fallback(spot)
+
+        data = response.json()
+
+        # ERROR FROM API
+        if "errors" in data:
+            print("Stormglass ERROR:", data["errors"])
+            return _fallback(spot)
+
+        hours = data.get("hours")
+
+        if not hours or len(hours) == 0:
+            print("No hours data")
+            return _fallback(spot)
+
+        hour = hours[0]
+        parsed = _parse_hour(hour)
+
+        result = {
+            "spot": spot["name"],
+            "wave": round(parsed["wave"], 1),
+            "period": int(parsed["period"]),
+            "wind": _wind_type(parsed["wind_direction"]),
+            "wind_speed": parsed["wind_speed"],
+        }
+
+        print(f"{spot['name']} -> {result}")
+
+        set_cache(cache_key, result)
+        return result
+
+    except Exception as e:
+        print("Exception:", e)
+        return _fallback(spot)
+
+
+def _fallback(spot):
+    print(f"{spot['name']} -> FALLBACK")
+
+    return {
+        "spot": spot["name"],
+        "wave": DEFAULT_DATA["wave"],
+        "period": DEFAULT_DATA["period"],
+        "wind": "unknown",
+        "wind_speed": DEFAULT_DATA["wind_speed"],
+    }

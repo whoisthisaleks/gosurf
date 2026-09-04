@@ -1,26 +1,26 @@
 SPOTS = [
     {
         "name": "Uluwatu",
-        "lat": -8.818986,
-        "lng": 115.088537,
-        "level": "advanced"
+        "lat": -8.829,
+        "lng": 115.084,
+        "image": "assets/uluwatu.jpg",
     },
     {
         "name": "Canggu",
-        "lat": -8.647817,
-        "lng": 115.138519,
-        "level": "intermediate"
+        "lat": -8.651,
+        "lng": 115.138,
+        "image": "assets/canggu.jpg",
     },
     {
         "name": "Kuta",
-        "lat": -8.7177,
-        "lng": 115.1682,
-        "level": "beginner"
+        "lat": -8.718,
+        "lng": 115.168,
+        "image": "assets/kuta.jpg",
     },
     {
         "name": "Medewi",
-        "lat": -8.4269,
-        "lng": 114.7876,
-        "level": "intermediate"
-    }
+        "lat": -8.426,
+        "lng": 114.784,
+        "image": "assets/medewi.jpg",
+    },
 ]
