@@ -1,14 +1,23 @@
 import time
 
-CACHE = {}
-CACHE_TTL = 900  # 15 минут
+_cache = {}
+
+
+def set_cache(key, value, ttl=3600):
+    _cache[key] = {
+        "value": value,
+        "expires": time.time() + ttl
+    }
+
 
 def get_cache(key):
-    if key in CACHE:
-        data, ts = CACHE[key]
-        if time.time() - ts < CACHE_TTL:
-            return data
-    return None
+    data = _cache.get(key)
 
-def set_cache(key, value):
-    CACHE[key] = (value, time.time())
+    if not data:
+        return None
+
+    if data["expires"] < time.time():
+        del _cache[key]
+        return None
+
+    return data["value"]

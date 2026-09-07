@@ -1,8 +1,16 @@
 import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, FSInputFile
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import (
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    FSInputFile
+)
 from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
+
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import TELEGRAM_TOKEN
 from weather import fetch_spot_weather
@@ -10,84 +18,22 @@ from decision_engine import pick_best_spots
 from spots import SPOTS
 
 
+# --- FSM ---
+class UserState(StatesGroup):
+    level = State()
+
+
 bot = Bot(
     token=TELEGRAM_TOKEN,
     default=DefaultBotProperties(parse_mode="HTML")
 )
 
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
 
 
-# ======================
-# FORMAT HELPERS
-# ======================
+# --- KEYBOARDS ---
 
-def format_swell(value):
-    if value is None:
-        return "unknown"
-    return f"{int(value)}°"
-
-
-# ======================
-# UI TEXT BUILDERS
-# ======================
-
-def build_start_text():
-    return (
-        "<b>Hey surfer!</b>\n\n"
-        "Find the best surf spot based on current conditions\n\n"
-        "Choose your level:"
-    )
-
-
-def build_best_text(best, alternatives):
-    text = f"<b>Best spot: {best['spot']}</b>\n\n"
-    text += (
-        f"Wave: {best['wave']}m\n"
-        f"Period: {best['period']}s\n"
-        f"Wind: {best['wind']}\n"
-        f"Swell: {format_swell(best.get('swell_dir'))}\n\n"
-    )
-
-    if alternatives:
-        text += "<b>Alternatives:</b>\n\n"
-        for alt in alternatives:
-            text += f"{alt['spot']}\n"
-
-    return text
-
-
-def build_alternatives_text(alternatives):
-    text = "<b>Alternatives:</b>\n\n"
-
-    for alt in alternatives:
-        text += (
-            f"<b>{alt['spot']}</b>\n"
-            f"Wave: {alt['wave']}m\n"
-            f"Period: {alt['period']}s\n"
-            f"Wind: {alt['wind']}\n"
-            f"Swell: {format_swell(alt.get('swell_dir'))}\n\n"
-        )
-
-    return text
-
-
-# ======================
-# KEYBOARDS
-# ======================
-
-def get_main_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Update forecast")],
-            [KeyboardButton(text="Change level")],
-            [KeyboardButton(text="Restart")],
-        ],
-        resize_keyboard=True
-    )
-
-
-def get_level_keyboard():
+def level_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Beginner")],
@@ -98,98 +44,180 @@ def get_level_keyboard():
     )
 
 
-# ======================
-# STATE
-# ======================
-
-user_level = {}
-
-
-# ======================
-# HANDLERS
-# ======================
-
-@dp.message(Command("start"))
-async def start(message: types.Message):
-    await message.answer_photo(
-        photo=FSInputFile("assets/start.png"),
-        caption=build_start_text(),
-        reply_markup=get_level_keyboard()
+def action_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Update")],
+            [KeyboardButton(text="All spots")],
+            [KeyboardButton(text="Change level")],
+            [KeyboardButton(text="Restart")],
+        ],
+        resize_keyboard=True
     )
 
 
-@dp.message()
-async def handle(message: types.Message):
-    text = (message.text or "").strip().lower()
-    user_id = message.from_user.id
+# --- HELPERS ---
 
-    # LEVEL SELECT
-    if text in ["beginner", "intermediate", "advanced"]:
-        user_level[user_id] = text
+def format_best(best, alternatives):
+    text = f"<b>Best spot: {best['spot']}</b>\n\n"
+    text += f"Wave: {best['wave']}m\n"
+    text += f"Period: {best['period']}s\n"
+    text += f"Wind: {best['wind']}\n"
 
-        await message.answer("Updating forecast...")
+    if best.get("swell_dir"):
+        text += f"Swell: {int(best['swell_dir'])}°\n"
 
-        weather_data = [fetch_spot_weather(s) for s in SPOTS]
-        best, alternatives = pick_best_spots(weather_data, text)
+    if best.get("tide"):
+        text += f"Tide: {best['tide']}\n"
 
-        # BEST
-        await message.answer_photo(
-            photo=FSInputFile("assets/best.png"),
-            caption=build_best_text(best, alternatives),
-            reply_markup=get_main_keyboard()
-        )
+    text += "\n<b>Alternatives:</b>\n\n"
 
-        # ALTERNATIVES DETAILS
-        if alternatives:
-            await message.answer_photo(
-                photo=FSInputFile("assets/alt.png"),
-                caption=build_alternatives_text(alternatives),
-                reply_markup=get_main_keyboard()
-            )
+    for alt in alternatives:
+        text += f"{alt['spot']}\n"
 
+    return text
+
+
+def format_alternatives(alternatives):
+    text = "<b>Alternatives:</b>\n\n"
+
+    for alt in alternatives:
+        text += f"<b>{alt['spot']}</b>\n"
+        text += f"Wave: {alt['wave']}m\n"
+        text += f"Period: {alt['period']}s\n"
+        text += f"Wind: {alt['wind']}\n"
+
+        if alt.get("swell_dir"):
+            text += f"Swell: {int(alt['swell_dir'])}°\n"
+
+        if alt.get("tide"):
+            text += f"Tide: {alt['tide']}\n"
+
+        text += "\n"
+
+    return text
+
+
+def format_all_spot(spot):
+    text = f"<b>{spot['spot']}</b>\n"
+    text += f"Wave: {spot['wave']}m\n"
+    text += f"Period: {spot['period']}s\n"
+    text += f"Wind: {spot['wind']}\n"
+
+    if spot.get("swell_dir"):
+        text += f"Swell: {int(spot['swell_dir'])}°\n"
+
+    if spot.get("tide"):
+        text += f"Tide: {spot['tide']}\n"
+
+    return text
+
+
+async def load_all_data():
+    return [fetch_spot_weather(s) for s in SPOTS]
+
+
+async def send_forecast(message, level):
+    data = await load_all_data()
+    best, alternatives = pick_best_spots(data, level)
+
+    best_photo = FSInputFile("assets/best.png")
+    alt_photo = FSInputFile("assets/alt.png")
+
+    await message.answer_photo(
+        photo=best_photo,
+        caption=format_best(best, alternatives),
+        reply_markup=action_keyboard()
+    )
+
+    await message.answer_photo(
+        photo=alt_photo,
+        caption=format_alternatives(alternatives)
+    )
+
+
+# --- HANDLERS ---
+
+@dp.message(Command("start"))
+async def start(message: types.Message, state: FSMContext):
+    await state.clear()
+
+    photo = FSInputFile("assets/start.png")
+
+    text = (
+        "<b>Hey surfer!</b>\n\n"
+        "Find the best surf spot based on current conditions\n\n"
+        "Choose your level:"
+    )
+
+    await message.answer_photo(
+        photo=photo,
+        caption=text,
+        reply_markup=level_keyboard()
+    )
+
+
+@dp.message(F.text.in_(["Beginner", "Intermediate", "Advanced"]))
+async def handle_level(message: types.Message, state: FSMContext):
+    level = message.text
+
+    await state.set_state(UserState.level)
+    await state.update_data(level=level)
+
+    await message.answer("Updating forecast...")
+
+    await send_forecast(message, level)
+
+
+# --- 🔥 FIXED UPDATE ---
+
+@dp.message(F.text == "Update")
+async def update(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    level = data.get("level")
+
+    if not level:
+        await message.answer("Choose your level first", reply_markup=level_keyboard())
         return
 
-    # UPDATE
-    if text == "update forecast":
-        level = user_level.get(user_id, "intermediate")
-
-        await message.answer("Updating forecast...")
-
-        weather_data = [fetch_spot_weather(s) for s in SPOTS]
-        best, alternatives = pick_best_spots(weather_data, level)
-
-        await message.answer_photo(
-            photo=FSInputFile("assets/best.png"),
-            caption=build_best_text(best, alternatives),
-            reply_markup=get_main_keyboard()
-        )
-
-        if alternatives:
-            await message.answer_photo(
-                photo=FSInputFile("assets/alt.png"),
-                caption=build_alternatives_text(alternatives),
-                reply_markup=get_main_keyboard()
-            )
-
-        return
-
-    # CHANGE LEVEL
-    if text == "change level":
-        await start(message)
-        return
-
-    # RESTART
-    if text == "restart":
-        user_level.pop(user_id, None)
-        await start(message)
-        return
-
-    await message.answer("Use buttons", reply_markup=get_main_keyboard())
+    await message.answer("Updating forecast...")
+    await send_forecast(message, level)
 
 
-# ======================
-# RUN
-# ======================
+@dp.message(F.text == "All spots")
+async def all_spots(message: types.Message):
+    await message.answer("Updating forecast...")
+
+    data = await load_all_data()
+
+    photo = FSInputFile("assets/all.png")
+
+    await message.answer_photo(
+        photo=photo,
+        caption="<b>All spots:</b>"
+    )
+
+    for spot in data:
+        await message.answer(format_all_spot(spot))
+
+
+@dp.message(F.text == "Change level")
+async def change_level(message: types.Message, state: FSMContext):
+    await state.clear()
+
+    await message.answer(
+        "Choose your level:",
+        reply_markup=level_keyboard()
+    )
+
+
+@dp.message(F.text == "Restart")
+async def restart(message: types.Message, state: FSMContext):
+    await state.clear()
+    await start(message, state)
+
+
+# --- MAIN ---
 
 async def main():
     print("Bot started")

@@ -1,25 +1,38 @@
-def _angle_diff(a, b):
-    diff = abs(a - b)
-    return min(diff, 360 - diff)
+def _safe_get(d, key, default=None):
+    return d.get(key, default)
 
 
-def _swell_score(spot, swell_dir):
-    if swell_dir is None:
+# ======================
+# SCORING
+# ======================
+
+def _wave_score(level, wave):
+    if wave is None:
         return 0
 
-    if spot["swell_min"] <= swell_dir <= spot["swell_max"]:
-        return 2
+    if level == "Beginner":
+        if 0.5 <= wave <= 1.2:
+            return 3
+        elif wave < 1.5:
+            return 1
+        return -2
 
-    mid = (spot["swell_min"] + spot["swell_max"]) / 2
-    if _angle_diff(swell_dir, mid) <= 40:
+    if level == "Intermediate":
+        if 1 <= wave <= 2:
+            return 3
         return 1
 
-    return -2
+    if level == "Advanced":
+        if wave >= 1.5:
+            return 3
+        return 1
+
+    return 0
 
 
 def _wind_score(wind):
     if wind == "offshore":
-        return 2
+        return 3
     if wind == "cross":
         return 1
     if wind == "onshore":
@@ -27,55 +40,69 @@ def _wind_score(wind):
     return 0
 
 
-def _tide_score(spot, tide):
-    if tide == "unknown":
+def _period_score(period):
+    if period is None:
         return 0
 
-    if tide == spot["tide"]:
+    if period >= 10:
         return 2
-
-    if spot["tide"] == "mid" and tide in ["low", "high"]:
+    elif period >= 7:
         return 1
+    return 0
 
-    return -1
 
+def _swell_score(spot, swell_dir):
+    if swell_dir is None:
+        return 0
 
-def _wave_score(level, wave):
-    if level == "beginner":
-        return 2 if 0.5 <= wave <= 1.2 else -2
+    swell_min = spot.get("swell_min")
+    swell_max = spot.get("swell_max")
 
-    if level == "intermediate":
-        return 2 if 0.8 <= wave <= 2.0 else 0
+    # 👉 КЛЮЧЕВОЙ FIX (никаких KeyError)
+    if swell_min is None or swell_max is None:
+        return 0
 
-    if level == "advanced":
-        return 2 if wave >= 1.5 else 0
+    if swell_min <= swell_dir <= swell_max:
+        return 2
 
     return 0
 
 
+# ======================
+# TOTAL SCORE
+# ======================
+
 def score_spot(data, spot_config, level):
     score = 0
 
-    score += _wave_score(level, data["wave"])
-    score += _wind_score(data["wind"])
+    score += _wave_score(level, data.get("wave"))
+    score += _wind_score(data.get("wind"))
+    score += _period_score(data.get("period"))
     score += _swell_score(spot_config, data.get("swell_dir"))
-    score += _tide_score(spot_config, data.get("tide"))
 
     return score
 
 
-def pick_best_spots(weather_data, level):
-    from spots import SPOTS
+# ======================
+# PICK BEST
+# ======================
 
+def pick_best_spots(spots_data, level):
     scored = []
 
-    for data in weather_data:
-        config = next(s for s in SPOTS if s["name"] == data["spot"])
-        s = score_spot(data, config, level)
+    for data in spots_data:
+        # ищем конфиг по имени
+        spot_config = next(
+            (s for s in spots_data if s["spot"] == data["spot"]),
+            {}
+        )
 
-        data["score"] = s
-        scored.append(data)
+        s = score_spot(data, spot_config, level)
+        scored.append((data, s))
 
-    scored.sort(key=lambda x: x["score"], reverse=True)
+    scored.sort(key=lambda x: x[1], reverse=True)
 
-    return scored[0], scored[1:3]
+    best = scored[0][0]
+    alternatives = [x[0] for x in scored[1:3]]
+
+    return best, alternatives
