@@ -10,6 +10,8 @@ from weather import fetch_spot_weather
 from decision_engine import pick_best_spots
 from spots import SPOTS
 
+from scheduler import start_scheduler, register_user
+
 
 bot = Bot(
     token=TELEGRAM_TOKEN,
@@ -151,6 +153,7 @@ async def start(message: Message):
 async def handle_level(message: Message):
     level = message.text
     user_level[message.chat.id] = level
+    register_user(message.chat.id, level)
 
     await message.answer("Updating forecast...")
 
@@ -224,7 +227,12 @@ async def main():
 
     await bot.delete_webhook(drop_pending_updates=True)
 
+    start_scheduler(bot)
+
     await dp.start_polling(bot)
+
+    print("STARTING SCHEDULER...")
+    start_scheduler(bot)
 
 
 if __name__ == "__main__":
