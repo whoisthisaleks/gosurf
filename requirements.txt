@@ -1,4 +1,4 @@
 aiogram==3.22.0
-requests
+apscheduler==3.10.4
 pytz
-apscheduler
+requests
