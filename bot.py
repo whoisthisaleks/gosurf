@@ -57,7 +57,8 @@ def main_keyboard():
 # ======================
 
 def format_best(best, alternatives):
-    text = f"<b>Best spot: {best['spot']}</b>\n\n"
+    text = f"<b>Best spot: {best['spot']}</b>\n"
+    text += f"{best.get('confidence', '')}\n\n"
 
     text += f"Why: {best.get('reason', 'good conditions')}\n\n"
 
