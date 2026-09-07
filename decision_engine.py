@@ -90,6 +90,10 @@ def get_confidence(score):
         return "⚠️ Poor"
 
 
+def is_bad_day(score):
+    return score < 4    
+
+
 # ======================
 # REASON
 # ======================
@@ -159,5 +163,6 @@ def pick_best_spots(all_data, level):
     # добавляем умные поля
     best["reason"] = build_reason(best, level)
     best["confidence"] = get_confidence(best_score)
+    best["bad_day"] = is_bad_day(best_score)
 
     return best, alternatives

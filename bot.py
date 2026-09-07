@@ -60,6 +60,9 @@ def format_best(best, alternatives):
     text = f"<b>Best spot: {best['spot']}</b>\n"
     text += f"{best.get('confidence', '')}\n\n"
 
+    if best.get("bad_day"):
+        text += "❌ No good surf today. Better to skip.\n\n"
+
     text += f"Why: {best.get('reason', 'good conditions')}\n\n"
 
     text += f"Wave: {best['wave']}m\n"
