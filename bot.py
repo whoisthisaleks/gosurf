@@ -1,10 +1,6 @@
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import (
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    FSInputFile
-)
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, FSInputFile
 from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
 
@@ -18,7 +14,6 @@ from decision_engine import pick_best_spots
 from spots import SPOTS
 
 
-# --- FSM ---
 class UserState(StatesGroup):
     level = State()
 
@@ -56,10 +51,14 @@ def action_keyboard():
     )
 
 
-# --- HELPERS ---
+# --- FORMAT ---
 
 def format_best(best, alternatives):
     text = f"<b>Best spot: {best['spot']}</b>\n\n"
+
+    # WHY ПЕРЕД CONDITIONS
+    text += f"Why: {best.get('reason', 'good conditions')}\n\n"
+
     text += f"Wave: {best['wave']}m\n"
     text += f"Period: {best['period']}s\n"
     text += f"Wind: {best['wind']}\n"
@@ -71,7 +70,6 @@ def format_best(best, alternatives):
         text += f"Tide: {best['tide']}\n"
 
     text += "\n<b>Alternatives:</b>\n\n"
-
     for alt in alternatives:
         text += f"{alt['spot']}\n"
 
@@ -121,17 +119,14 @@ async def send_forecast(message, level):
     data = await load_all_data()
     best, alternatives = pick_best_spots(data, level)
 
-    best_photo = FSInputFile("assets/best.png")
-    alt_photo = FSInputFile("assets/alt.png")
-
     await message.answer_photo(
-        photo=best_photo,
+        FSInputFile("assets/best.png"),
         caption=format_best(best, alternatives),
         reply_markup=action_keyboard()
     )
 
     await message.answer_photo(
-        photo=alt_photo,
+        FSInputFile("assets/alt.png"),
         caption=format_alternatives(alternatives)
     )
 
@@ -142,17 +137,13 @@ async def send_forecast(message, level):
 async def start(message: types.Message, state: FSMContext):
     await state.clear()
 
-    photo = FSInputFile("assets/start.png")
-
-    text = (
-        "<b>Hey surfer!</b>\n\n"
-        "Find the best surf spot based on current conditions\n\n"
-        "Choose your level:"
-    )
-
     await message.answer_photo(
-        photo=photo,
-        caption=text,
+        FSInputFile("assets/start.png"),
+        caption=(
+            "<b>Hey surfer!</b>\n\n"
+            "Find the best surf spot based on current conditions\n\n"
+            "Choose your level:"
+        ),
         reply_markup=level_keyboard()
     )
 
@@ -165,11 +156,8 @@ async def handle_level(message: types.Message, state: FSMContext):
     await state.update_data(level=level)
 
     await message.answer("Updating forecast...")
-
     await send_forecast(message, level)
 
-
-# --- 🔥 FIXED UPDATE ---
 
 @dp.message(F.text == "Update")
 async def update(message: types.Message, state: FSMContext):
@@ -190,10 +178,8 @@ async def all_spots(message: types.Message):
 
     data = await load_all_data()
 
-    photo = FSInputFile("assets/all.png")
-
     await message.answer_photo(
-        photo=photo,
+        FSInputFile("assets/all.png"),
         caption="<b>All spots:</b>"
     )
 
@@ -204,11 +190,7 @@ async def all_spots(message: types.Message):
 @dp.message(F.text == "Change level")
 async def change_level(message: types.Message, state: FSMContext):
     await state.clear()
-
-    await message.answer(
-        "Choose your level:",
-        reply_markup=level_keyboard()
-    )
+    await message.answer("Choose your level:", reply_markup=level_keyboard())
 
 
 @dp.message(F.text == "Restart")
