@@ -148,12 +148,28 @@ def pick_best_spots(all_data, level):
 
     from spots import SPOTS
 
-    for data in all_data:
-        spot_name = data["spot"]
-        spot_config = next(s for s in SPOTS if s["name"] == spot_name)
+    # 🔒 делаем безопасный индекс
+    spot_map = {s["name"]: s for s in SPOTS if isinstance(s, dict)}
 
-        s = score_spot(data, spot_config, level)
-        scored.append((s, data))
+    for data in all_data:
+        try:
+            spot_name = data.get("spot")
+
+            if spot_name not in spot_map:
+                print("UNKNOWN SPOT:", spot_name)
+                continue
+
+            spot_config = spot_map[spot_name]
+
+            s = score_spot(data, spot_config, level)
+            scored.append((s, data))
+
+        except Exception as e:
+            print("SCORING ERROR:", e)
+            continue
+
+    if not scored:
+        raise Exception("No valid spots to score")
 
     scored.sort(key=lambda x: x[0], reverse=True)
 

@@ -7,7 +7,7 @@ import os
 
 FILE_PATH = os.getenv("USERS_FILE", "./users.json")
 
-# Render disk
+# если Render disk доступен — используем его
 if os.path.exists("/data"):
     FILE_PATH = "/data/users.json"
 

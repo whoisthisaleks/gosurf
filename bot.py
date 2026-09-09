@@ -22,6 +22,10 @@ from pro import (
 
 from scheduler import send_morning_forecast
 
+from users_storage import get_users
+from pro import get_all_pro_users
+from cache import get_cache
+
 
 bot = Bot(
     token=TELEGRAM_TOKEN,
@@ -88,11 +92,17 @@ def format_best(best, alternatives, pro=False):
     text += f"Period: {best.get('period', 'N/A')}s\n"
     text += f"Wind: {best.get('wind', 'N/A')}\n"
 
+    # SWELL
     if best.get("swell_dir") is not None:
         text += f"Swell: {int(best['swell_dir'])}°\n"
 
+    # TIDE
     if best.get("tide"):
         text += f"Tide: {best['tide']}\n"
+
+    # ⏰ ВСЕГДА ПОСЛЕДНИЙ
+    if pro and best.get("best_time"):
+        text += f"⏰ Best time: {best['best_time']}\n"
 
     # alternatives только для PRO
     if pro and alternatives:
@@ -126,6 +136,9 @@ def format_alternatives(alternatives):
         if spot.get("tide"):
             text += f"Tide: {spot['tide']}\n"
 
+        if spot.get("best_time"):
+            text += f"⏰ Best time: {spot['best_time']}\n"
+
         text += "\n"
 
     return text
@@ -145,6 +158,9 @@ def format_all_spots(data):
 
         if spot.get("tide"):
             text += f"Tide: {spot['tide']}\n"
+
+        if spot.get("best_time"):
+            text += f"⏰ Best time: {spot['best_time']}\n"    
 
         text += "\n"
 
@@ -343,7 +359,21 @@ async def pro_status(message: Message):
 
 @dp.message(Command("morning"))
 async def manual_morning(message: Message):
-    await send_morning_forecast(bot)        
+    await send_morning_forecast(bot)      
+
+@dp.message(Command("stats"))
+async def stats(message: Message):
+    users = get_users()
+    pro_users = get_all_pro_users()
+
+    calls = get_cache("stormglass_calls") or 0
+
+    await message.answer(
+        "📊 <b>GoSurf Stats</b>\n\n"
+        f"👥 Users: {len(users)}\n"
+        f"💎 Pro: {len(pro_users)}\n"
+        f"🌊 API calls (24h): {calls}"
+    )      
 
 
 # ======================

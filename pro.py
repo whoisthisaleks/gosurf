@@ -126,3 +126,7 @@ def should_notify_expired(user_id):
         return True
 
     return False
+
+def get_all_pro_users():
+    data = _load()
+    return data
