@@ -26,6 +26,20 @@ from users_storage import get_users
 from pro import get_all_pro_users
 from cache import get_cache
 
+from stats import (
+    track_user,
+    track_request,
+    track_best,
+    track_all,
+    track_morning,
+    get_dau,
+    get_requests,
+    get_best,
+    get_all,
+    get_morning
+)
+
+from retention import track_user_day, get_d1_retention
 
 bot = Bot(
     token=TELEGRAM_TOKEN,
@@ -202,10 +216,15 @@ async def get_safe_data():
 # HANDLERS
 # ======================
 
+from stats import track_first_seen
+
 @dp.message(Command("start"))
 async def start(message: Message):
+    track_user(message.from_user.id)
+    
     user_id = message.from_user.id
     start_trial(user_id)
+    track_user(user_id)
 
     await message.answer_photo(
         FSInputFile("assets/start.png"),
@@ -220,12 +239,22 @@ async def start(message: Message):
 
 @dp.message(F.text.in_(["Beginner", "Intermediate", "Advanced"]))
 async def handle_level(message: Message):
+    track_user(message.from_user.id)
+    track_request()
+    track_best()
+
     level = message.text
     user_level[message.chat.id] = level
     register_user(message.chat.id, level)
 
     user_id = message.from_user.id
     pro = is_pro(user_id)
+
+    track_user(user_id)
+    track_request()
+
+    user_id = message.from_user.id
+    track_first_seen(user_id)
 
     # ❗ уведомление об окончании trial
     if should_notify_expired(user_id):
@@ -265,10 +294,20 @@ async def handle_level(message: Message):
 
 @dp.message(F.text == "Update")
 async def update(message: Message):
+    track_user(message.from_user.id)
+    track_request()
+    track_best()
+
     level = user_level.get(message.chat.id, "Intermediate")
 
     user_id = message.from_user.id
     pro = is_pro(user_id)
+
+    track_user(user_id)
+    track_request()
+
+    user_id = message.from_user.id
+    track_first_seen(user_id)
 
     if should_notify_expired(user_id):
         await message.answer(
@@ -306,7 +345,14 @@ async def update(message: Message):
 
 @dp.message(F.text == "All spots")
 async def all_spots(message: Message):
+    track_user(message.from_user.id)
+    track_request()
+    track_all()
+
     user_id = message.from_user.id
+
+    track_user(user_id)
+    track_request()
 
     if not is_pro(user_id):
         await message.answer(
@@ -368,10 +414,21 @@ async def stats(message: Message):
 
     calls = get_cache("stormglass_calls") or 0
 
+    dau = get_dau()
+    requests = get_requests()
+    best = get_best()
+    all_spots = get_all()
+    morning = get_morning()
+
     await message.answer(
         "📊 <b>GoSurf Stats</b>\n\n"
-        f"👥 Users: {len(users)}\n"
-        f"💎 Pro: {len(pro_users)}\n"
+        f"👥 Total users: {len(users)}\n"
+        f"🔥 DAU: {dau}\n"
+        f"💎 Pro users: {len(pro_users)}\n\n"
+        f"📡 Requests today: {requests}\n"
+        f"• Best spot: {best}\n"
+        f"• All spots: {all_spots}\n"
+        f"• Morning: {morning}\n\n"
         f"🌊 API calls (24h): {calls}"
     )      
 

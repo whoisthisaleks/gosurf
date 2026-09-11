@@ -10,6 +10,8 @@ from users_storage import get_users
 
 from aiogram.types import FSInputFile
 
+from stats import track_morning
+
 
 # ======================
 # FORMATTERS (локальные)
@@ -81,6 +83,8 @@ async def send_morning_forecast(bot):
                 continue
 
             best, _ = pick_best_spots(data, level)
+
+            track_morning()
 
             # 1. 🌅 картинка
             await bot.send_photo(
