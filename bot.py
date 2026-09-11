@@ -225,6 +225,7 @@ async def start(message: Message):
     user_id = message.from_user.id
     start_trial(user_id)
     track_user(user_id)
+    track_first_seen(user_id)
 
     await message.answer_photo(
         FSInputFile("assets/start.png"),
@@ -305,6 +306,7 @@ async def update(message: Message):
 
     track_user(user_id)
     track_request()
+    track_best() 
 
     user_id = message.from_user.id
     track_first_seen(user_id)
@@ -353,6 +355,7 @@ async def all_spots(message: Message):
 
     track_user(user_id)
     track_request()
+    track_all()
 
     if not is_pro(user_id):
         await message.answer(
@@ -412,6 +415,13 @@ async def stats(message: Message):
     users = get_users()
     pro_users = get_all_pro_users()
 
+    # ✅ FIX: считаем только реальных PRO (кто есть в users)
+    real_pro = [u for u in pro_users if u in users]
+    pro_count = len(real_pro)
+
+    # ✅ Conversion
+    conversion = int(pro_count / len(users) * 100) if users else 0
+
     calls = get_cache("stormglass_calls") or 0
 
     dau = get_dau()
@@ -424,7 +434,8 @@ async def stats(message: Message):
         "📊 <b>GoSurf Stats</b>\n\n"
         f"👥 Total users: {len(users)}\n"
         f"🔥 DAU: {dau}\n"
-        f"💎 Pro users: {len(pro_users)}\n\n"
+        f"💎 Pro users: {pro_count}\n"
+        f"💰 Conversion: {conversion}%\n\n"
         f"📡 Requests today: {requests}\n"
         f"• Best spot: {best}\n"
         f"• All spots: {all_spots}\n"
