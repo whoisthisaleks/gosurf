@@ -27,9 +27,9 @@ def _wind_score(wind):
     if wind == "offshore":
         return 3
     elif wind == "cross":
-        return 1
+        return -1
     elif wind == "onshore":
-        return -2
+        return -3
 
     return 0
 
@@ -40,17 +40,27 @@ def _wave_score(level, wave):
 
     if level == "Beginner":
         if 0.5 <= wave <= 1.2:
-            return 2
-        elif wave > 1.5:
+            return 3   # 🔥 идеально
+        elif wave < 0.4:
             return -2
+        elif wave > 1.5:
+            return -3
 
     elif level == "Intermediate":
         if 1.0 <= wave <= 2.0:
             return 2
+        elif wave < 0.7:
+            return -1
+        elif wave > 2.5:
+            return -2
 
     elif level == "Advanced":
-        if wave >= 1.5:
-            return 2
+        if wave >= 1.8:
+            return 3
+        elif wave >= 1.2:
+            return 1
+        else:
+            return -2
 
     return 0
 
@@ -60,19 +70,40 @@ def _period_score(period):
         return 0
 
     if period >= 10:
-        return 2
-    elif period >= 7:
+        return 3
+    elif period >= 8:
         return 1
+    elif period < 8:
+        return -3   # ❗ теперь 7s — плохо
 
     return 0
 
 
-def _tide_score(tide):
+def _tide_score(tide, spot_config):
     if tide is None:
         return 0
 
-    if tide in ["mid", "incoming"]:
+    good_tides = spot_config.get("tide_good", [])
+
+    if tide in good_tides:
+        return 2   # 🔥 идеальный тайд для спота
+
+    if tide == "incoming":
         return 1
+
+    if tide == "low":
+        return -2
+
+    return 0
+
+def _wave_penalty(spot, wave):
+    if wave is None:
+        return 0
+
+    max_wave = spot.get("max_wave")
+
+    if max_wave and wave > max_wave:
+        return -6   # ❗ сильный штраф
 
     return 0
 
@@ -82,9 +113,9 @@ def _tide_score(tide):
 # ======================
 
 def get_confidence(score):
-    if score >= 7:
+    if score >= 10:
         return "🔥 Epic"
-    elif score >= 4:
+    elif score >= 6:
         return "👍 Good"
     else:
         return "⚠️ Poor"
@@ -120,6 +151,12 @@ def build_reason(data, level):
         if data.get("wave") and data["wave"] >= 1.8:
             reasons.append("powerful waves")
 
+    if data.get("tide") == "mid":
+        reasons.append("perfect tide")
+
+    elif data.get("tide") == "incoming":
+            reasons.append("rising tide")        
+
     return " + ".join(reasons) if reasons else "average conditions"
 
 
@@ -134,8 +171,8 @@ def score_spot(data, spot_config, level):
     score += _wind_score(data.get("wind"))
     score += _wave_score(level, data.get("wave"))
     score += _period_score(data.get("period"))
-    score += _tide_score(data.get("tide"))
-
+    score += _tide_score(data.get("tide"), spot_config)
+    score += _wave_penalty(spot_config, data.get("wave"))
     return score
 
 

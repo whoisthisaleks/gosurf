@@ -7,6 +7,10 @@ SPOTS = [
         "wave_factor": 1.2,
         "swell_min": 180,
         "swell_max": 240,
+
+        # 🌊 условия
+        "tide_good": ["mid", "high"],
+        "max_wave": 3.0,
     },
     {
         "name": "Padang Padang Beach",
@@ -16,6 +20,9 @@ SPOTS = [
         "wave_factor": 1.1,
         "swell_min": 180,
         "swell_max": 240,
+
+        "tide_good": ["mid", "high"],
+        "max_wave": 2.5,
     },
     {
         "name": "Balangan Beach",
@@ -25,6 +32,9 @@ SPOTS = [
         "wave_factor": 1.0,
         "swell_min": 190,
         "swell_max": 250,
+
+        "tide_good": ["mid"],
+        "max_wave": 2.2,
     },
     {
         "name": "Canggu Batu Bolong",
@@ -34,6 +44,9 @@ SPOTS = [
         "wave_factor": 0.8,
         "swell_min": 200,
         "swell_max": 270,
+
+        "tide_good": ["mid", "high"],
+        "max_wave": 1.5,  # ❗ важно для логики
     },
     {
         "name": "Seminyak Beach",
@@ -43,6 +56,9 @@ SPOTS = [
         "wave_factor": 0.75,
         "swell_min": 200,
         "swell_max": 270,
+
+        "tide_good": ["mid", "high"],
+        "max_wave": 1.6,
     },
     {
         "name": "Kuta Beach",
@@ -52,6 +68,9 @@ SPOTS = [
         "wave_factor": 0.7,
         "swell_min": 190,
         "swell_max": 260,
+
+        "tide_good": ["mid", "high"],
+        "max_wave": 1.8,
     },
     {
         "name": "Medewi Beach",
@@ -61,5 +80,8 @@ SPOTS = [
         "wave_factor": 1.1,
         "swell_min": 220,
         "swell_max": 300,
+
+        "tide_good": ["mid", "incoming"],
+        "max_wave": 3.0,
     },
 ]
