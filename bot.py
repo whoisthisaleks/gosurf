@@ -40,6 +40,9 @@ from stats import (
 )
 
 from retention import track_user_day, get_d1_retention
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from payments_storage import create_payment, mark_payment_checking
+from crypto import payment_watcher
 
 bot = Bot(
     token=TELEGRAM_TOKEN,
@@ -47,6 +50,7 @@ bot = Bot(
 )
 
 dp = Dispatcher()
+ADMIN_ID = 100438981
 
 
 # ======================
@@ -193,10 +197,26 @@ user_level = {}
 # ======================
 
 @dp.message(Command("pro"))
-async def give_pro(message: Message):
-    user_id = message.from_user.id
-    add_pro_user(user_id)
-    await message.answer("✅ You are now PRO user")
+async def admin_activate_pro(message: Message):
+    if not message.from_user or message.from_user.id != ADMIN_ID:
+        return
+
+    args = (message.text or "").split()
+    if len(args) < 2:
+        await message.answer("Usage: /pro USER_ID")
+        return
+
+    try:
+        target_user_id = int(args[1])
+    except ValueError:
+        await message.answer("USER_ID must be a number.")
+        return
+    if target_user_id <= 0:
+        await message.answer("USER_ID must be a positive number.")
+        return
+
+    add_pro_user(target_user_id, days=30)
+    await message.answer(f"PRO activated for {target_user_id}")
 
 
 # ======================
@@ -335,7 +355,8 @@ async def update(message: Message):
 
     await message.answer_photo(
         FSInputFile("assets/best.png"),
-        caption=format_best(best, alternatives, pro=pro)
+        caption=format_best(best, alternatives, pro=pro),
+        reply_markup=main_keyboard()
     )
 
     if pro:
@@ -397,14 +418,45 @@ async def pro_status(message: Message):
             f"🔥 Pro is active\n\nDays left: {days}"
         )
     else:
-        # 🔥 авто-продление на 31 день
-        add_pro_user(user_id)
+        import os
 
+        wallet = os.getenv("USDT_TRC20_WALLET", "").strip()
+        if not wallet:
+            await message.answer("Payments are temporarily unavailable. Please try again later.")
+            return
+
+        payment = create_payment(user_id)
+        if payment is None:
+            await message.answer("Another payment is currently awaiting confirmation. Please try again shortly.")
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="I paid", callback_data="pro_payment_paid")]
+        ])
         await message.answer(
-            "🔥 Pro activated!\n\n"
-            "You now have full access for 31 days.\n\n"
-            "Enjoy better surf sessions 🤙"
+            "💎 <b>GoSurf PRO — 30 days</b>\n\n"
+            "Send exactly <b>2.99 USDT</b> using the <b>TRC20</b> network to:\n"
+            f"<code>{wallet}</code>\n\n"
+            "After the transfer is confirmed on the network, tap <b>I paid</b>. "
+            "We will check it automatically.",
+            reply_markup=keyboard,
         )
+
+
+@dp.callback_query(F.data == "pro_payment_paid")
+async def confirm_payment_sent(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    if is_pro(user_id):
+        await callback.answer("You already have PRO.", show_alert=True)
+        return
+    if mark_payment_checking(user_id):
+        import logging
+        logging.getLogger(__name__).info("User %s moved to checking", user_id)
+        await callback.answer("Payment check started.")
+        if callback.message:
+            await callback.message.answer("⏳ We are checking the confirmed USDT transfer. This can take up to 2 minutes.")
+    else:
+        await callback.answer("No pending payment was found. Tap Pro to start a payment.", show_alert=True)
 
 @dp.message(Command("morning"))
 async def manual_morning(message: Message):
@@ -453,8 +505,15 @@ async def main():
 
     await bot.delete_webhook(drop_pending_updates=True)
     start_scheduler(bot)
-
-    await dp.start_polling(bot)
+    watcher_task = asyncio.create_task(payment_watcher(bot))
+    try:
+        await dp.start_polling(bot)
+    finally:
+        watcher_task.cancel()
+        try:
+            await watcher_task
+        except asyncio.CancelledError:
+            pass
 
 
 if __name__ == "__main__":

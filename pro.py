@@ -77,10 +77,10 @@ def is_pro(user_id):
 # ADD PRO (31 days)
 # ======================
 
-def add_pro_user(user_id):
+def add_pro_user(user_id, days=31):
     data = _load()
 
-    data[user_id] = datetime.utcnow() + timedelta(days=31)
+    data[user_id] = datetime.utcnow() + timedelta(days=days)
 
     _save(data)
 
