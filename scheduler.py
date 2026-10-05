@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import pytz
 
 from spots import SPOTS
@@ -11,6 +11,7 @@ from users_storage import get_users
 from aiogram.types import FSInputFile
 
 from stats import track_morning
+from support_scheduler import send_support_message
 
 
 # ======================
@@ -116,9 +117,14 @@ async def scheduler_loop(bot):
     tz = pytz.timezone("Asia/Makassar")
 
     last_run_date = None
+    next_support_message = datetime.now(tz) + timedelta(seconds=30)
 
     while True:
         now = datetime.now(tz)
+
+        if now >= next_support_message:
+            await send_support_message(bot)
+            next_support_message = datetime.now(tz) + timedelta(hours=48)
 
         target_time = time(6, 58)
 

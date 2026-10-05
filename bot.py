@@ -82,6 +82,9 @@ def main_keyboard():
                 KeyboardButton(text="Pro")
             ],
             [
+                KeyboardButton(text="❤️ Support GoSurf")
+            ],
+            [
                 KeyboardButton(text="Restart")
             ]
         ],
@@ -443,6 +446,45 @@ async def pro_status(message: Message):
         )
 
 
+@dp.message(F.text == "❤️ Support GoSurf")
+async def support_gosurf(message: Message):
+    if create_payment(message.from_user.id) is None:
+        await message.answer("Another payment is currently awaiting confirmation. Please try again shortly.")
+        return
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="I supported", callback_data="support_payment_paid")]
+    ])
+    await message.answer(
+        "🏄 Support GoSurf\n\n"
+        "If you enjoy using GoSurf, you can support the project and unlock PRO access.\n\n"
+        "💎 What PRO gives you:\n"
+        "• best time to surf today (no guessing)\n"
+        "• 2 alternative surf spots\n"
+        "• full surf analysis (wave, wind, swell, tide)\n"
+        "• daily updated forecast\n\n"
+        "⏱ Access for 30 days\n\n"
+        "Send <b>2.99 USDT (TRC20)</b> to:\n\n"
+        "<code>TJBSNWT2PeHZEbfdSC2Kf4Rrc9KCKPWiRW</code>\n\n"
+        "After payment tap ↓",
+        reply_markup=keyboard,
+    )
+
+
+@dp.callback_query(F.data == "support_payment_paid")
+async def confirm_support_payment(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    if is_pro(user_id):
+        await callback.answer("You already have PRO.", show_alert=True)
+        return
+    if mark_payment_checking(user_id):
+        await callback.answer("Payment check started.")
+        if callback.message:
+            await callback.message.answer("⏳ We are checking the USDT transfer. This can take up to 2 minutes.")
+    else:
+        await callback.answer("No pending payment was found. Please try again.", show_alert=True)
+
+
 @dp.callback_query(F.data == "pro_payment_paid")
 async def confirm_payment_sent(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -518,3 +560,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
