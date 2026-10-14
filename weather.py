@@ -86,8 +86,13 @@ def fetch_spot_weather(spot):
 
     cached = get_cache(cache_key)
 
-    # игнор старого кэша без best_time
-    if cached and "best_time" in cached:
+    # Refresh old entries so the API can verify field provenance before returning them.
+    if (
+        cached
+        and "best_time" in cached
+        and "data_source" in cached
+        and "available_fields" in cached
+    ):
         return cached
 
     now = datetime.now(timezone.utc)

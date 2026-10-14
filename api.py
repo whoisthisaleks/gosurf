@@ -11,6 +11,7 @@ from weather import fetch_spot_weather
 
 
 Level = Literal["Beginner", "Intermediate", "Advanced"]
+SCORING_FIELDS = {"wave", "period", "wind_direction", "wave_direction"}
 
 app = FastAPI(title="GoSurf API", version="1.0.0")
 
@@ -89,7 +90,7 @@ def list_spots() -> list[SpotResponse]:
 @app.get("/v1/forecast", response_model=ForecastResponse)
 def forecast(level: Level = "Intermediate") -> ForecastResponse:
     forecasts = []
-    trusted_results = []
+    scoring_results = []
 
     for spot in SPOTS:
         try:
@@ -99,7 +100,7 @@ def forecast(level: Level = "Intermediate") -> ForecastResponse:
 
         forecast_spot = _forecast_spot(spot, weather)
         forecasts.append(forecast_spot)
-        # Old cache entries lack data_source, so they are conservatively excluded.
+        # Old cache entries lack source metadata and are conservatively excluded.
         if forecast_spot.data_source == "stormglass":
             trusted = dict(weather)
             available = set(weather.get("available_fields", []))
@@ -113,12 +114,14 @@ def forecast(level: Level = "Intermediate") -> ForecastResponse:
                 trusted["wave"] = None
             if "period" not in available:
                 trusted["period"] = None
-            trusted_results.append(trusted)
+            # Wind speed alone cannot support a spot recommendation.
+            if available.intersection(SCORING_FIELDS):
+                scoring_results.append(trusted)
 
     recommendation = None
     alternatives: list[str] = []
-    if trusted_results:
-        best, other_spots = pick_best_spots(trusted_results, level)
+    if scoring_results:
+        best, other_spots = pick_best_spots(scoring_results, level)
         recommendation = RecommendationResponse(
             spot=best["spot"],
             reason=best["reason"],
@@ -127,7 +130,7 @@ def forecast(level: Level = "Intermediate") -> ForecastResponse:
         )
         alternatives = [item["spot"] for item in other_spots]
 
-    live_count = len(trusted_results)
+    live_count = sum(item.data_source == "stormglass" for item in forecasts)
     status = "unavailable" if live_count == 0 else (
         "live" if live_count == len(SPOTS) else "partial"
     )

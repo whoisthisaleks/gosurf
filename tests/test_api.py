@@ -142,5 +142,25 @@ def test_forecast_hides_defaulted_fields_and_excludes_synthetic_tide_from_scorin
     assert seen["data"][0]["tide"] is None
 
 
+def test_wind_speed_alone_does_not_create_a_recommendation(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "fetch_spot_weather",
+        lambda spot: {
+            "spot": spot["name"],
+            "wave": 0.8,
+            "period": 8,
+            "wind_speed": 5,
+            "data_source": "stormglass",
+            "available_fields": ["wind_speed"],
+        },
+    )
+
+    body = get("/v1/forecast").json()
+    assert body["status"] == "live"
+    assert body["spots"][0]["wind_speed"] == 5
+    assert body["recommendation"] is None
+
+
 def test_forecast_rejects_unknown_level():
     assert get("/v1/forecast?level=Expert").status_code == 422
