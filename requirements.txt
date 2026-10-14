@@ -3,3 +3,5 @@ apscheduler==3.10.4
 pytz
 requests
 python-dotenv==1.0.1
+fastapi
+uvicorn

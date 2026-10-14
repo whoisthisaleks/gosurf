@@ -134,6 +134,19 @@ def fetch_spot_weather(spot):
             "wind_speed": parsed["wind_speed"],
             "swell_dir": parsed["wave_direction"],
             "tide": _fake_tide_by_time(),
+            "data_source": "stormglass",
+            "available_fields": [
+                field for field, source_key in (
+                    ("wave", "waveHeight"),
+                    ("period", "wavePeriod"),
+                    ("wind_speed", "windSpeed"),
+                    ("wind_direction", "windDirection"),
+                    ("wave_direction", "waveDirection"),
+                )
+                if _get_value(hours[0], source_key) is not None
+            ],
+            # API-only value: do not publish best time derived from placeholder inputs.
+            "api_best_time": get_best_time(hours, spot, require_real_data=True),
         }
 
         set_cache(cache_key, result, ttl=CACHE_TTL)
@@ -155,6 +168,7 @@ def _fallback(spot):
         "swell_dir": None,
         "tide": _fake_tide_by_time(),
         "best_time": None,
+        "data_source": "fallback",
     }
 
 
@@ -172,7 +186,7 @@ def increment_api_calls():
 # BEST TIME (3h RANGE)
 # ======================
 
-def get_best_time(hours, spot):
+def get_best_time(hours, spot, require_real_data=False):
     scored_hours = []
 
     for h in hours[:12]:
@@ -191,6 +205,12 @@ def get_best_time(hours, spot):
             continue
 
         parsed = _parse_hour(h)
+
+        if require_real_data and any(
+            _get_value(h, key) is None
+            for key in ("waveHeight", "wavePeriod", "windDirection")
+        ):
+            continue
 
         wave = parsed["wave"] * spot.get("wave_factor", 1)
         period = parsed["period"]
