@@ -1,6 +1,7 @@
 import asyncio
 
 import httpx
+import pytest
 
 import api
 
@@ -12,6 +13,12 @@ def get(path):
             return await client.get(path)
 
     return asyncio.run(request())
+
+
+@pytest.fixture(autouse=True)
+def isolate_api_failure_cache(monkeypatch):
+    monkeypatch.setattr(api, "get_cache", lambda key: None)
+    monkeypatch.setattr(api, "set_cache", lambda key, value, ttl=3600: None)
 
 
 def test_health_and_spots_responses():
@@ -164,3 +171,43 @@ def test_wind_speed_alone_does_not_create_a_recommendation(monkeypatch):
 
 def test_forecast_rejects_unknown_level():
     assert get("/v1/forecast?level=Expert").status_code == 422
+
+
+def test_unavailable_weather_is_cached_for_ten_minutes_across_levels(monkeypatch):
+    state = {"now": 0, "cache": {}, "ttl_values": [], "calls": []}
+
+    def get_cache(key):
+        cached = state["cache"].get(key)
+        if cached is None or cached[1] <= state["now"]:
+            return None
+        return cached[0]
+
+    def set_cache(key, value, ttl=3600):
+        state["cache"][key] = (value, state["now"] + ttl)
+        state["ttl_values"].append(ttl)
+
+    def unavailable_weather(spot):
+        state["calls"].append(spot["name"])
+        return {
+            "spot": spot["name"],
+            "wave": 0.8,
+            "period": 8,
+            "wind_speed": 5,
+            "data_source": "fallback",
+        }
+
+    monkeypatch.setattr(api, "get_cache", get_cache, raising=False)
+    monkeypatch.setattr(api, "set_cache", set_cache, raising=False)
+    monkeypatch.setattr(api, "fetch_spot_weather", unavailable_weather)
+
+    first = get("/v1/forecast?level=Intermediate").json()
+    second = get("/v1/forecast?level=Advanced").json()
+
+    assert first["status"] == second["status"] == "unavailable"
+    assert len(state["calls"]) == len(api.SPOTS)
+    assert set(state["ttl_values"]) == {600}
+
+    state["now"] += 601
+    get("/v1/forecast?level=Intermediate")
+
+    assert len(state["calls"]) == 2 * len(api.SPOTS)

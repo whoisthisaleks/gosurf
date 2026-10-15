@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from cache import get_cache, set_cache
 from decision_engine import pick_best_spots
 from spots import SPOTS
 from weather import fetch_spot_weather
@@ -12,6 +13,7 @@ from weather import fetch_spot_weather
 
 Level = Literal["Beginner", "Intermediate", "Advanced"]
 SCORING_FIELDS = {"wave", "period", "wind_direction", "wave_direction"}
+UNAVAILABLE_WEATHER_CACHE_TTL = 600
 
 app = FastAPI(title="GoSurf API", version="1.0.0")
 
@@ -74,6 +76,24 @@ def _forecast_spot(spot: dict, weather: dict) -> ForecastSpotResponse:
     )
 
 
+def _fetch_api_weather(spot: dict) -> dict:
+    """Cache unavailable provider results briefly for API callers only."""
+    cache_key = f"api:unavailable-weather:{spot['name']}"
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        weather = fetch_spot_weather(spot)
+    except Exception:
+        weather = {"data_source": "fallback"}
+
+    if weather.get("data_source") != "stormglass":
+        set_cache(cache_key, weather, ttl=UNAVAILABLE_WEATHER_CACHE_TTL)
+
+    return weather
+
+
 @app.get("/v1/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -93,11 +113,7 @@ def forecast(level: Level = "Intermediate") -> ForecastResponse:
     scoring_results = []
 
     for spot in SPOTS:
-        try:
-            weather = fetch_spot_weather(spot)
-        except Exception:
-            weather = {"data_source": "fallback"}
-
+        weather = _fetch_api_weather(spot)
         forecast_spot = _forecast_spot(spot, weather)
         forecasts.append(forecast_spot)
         # Old cache entries lack source metadata and are conservatively excluded.
